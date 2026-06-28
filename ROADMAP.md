@@ -15,7 +15,7 @@
 ## Фаза 0 — Фундамент
 - [x] Каркас монорепо: `/backend` (FastAPI) и `/frontend` (Vite+React+TS)
 - [x] Backend: проект на uv, приложение FastAPI, эндпоинт `/health`, скрипт запуска uvicorn
-- [ ] Backend: подключены pytest + pytest-asyncio, один проходящий smoke-тест
+- [!] Backend: подключены pytest + pytest-asyncio, один проходящий smoke-тест (код готов, см. NEEDS HUMAN — окружение блокирует запуск)
 - [ ] Frontend: Vite-приложение стартует, подключён Vitest, один проходящий smoke-тест
 - [ ] Docker-compose для Postgres (+ опционально Redis); `.env.example`
 - [ ] Линт/формат: ruff + mypy (backend), eslint + prettier (frontend)

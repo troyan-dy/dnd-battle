@@ -21,10 +21,12 @@ MODEL="${MODEL:-opus}"
 
 cd "$(dirname "$0")"
 
-# Stop if STATE.md has a real entry under "NEEDS HUMAN" (anything but "(none yet)").
+# Stop if STATE.md has a real entry under "NEEDS HUMAN".
+# Placeholders that mean "nothing to do" are ignored: English "(none yet)" and
+# Russian "(пока нет)". Comment lines are ignored too.
 needs_human() {
   awk '/## NEEDS HUMAN/{f=1;next}/^## /{f=0}f' STATE.md \
-    | grep -v '^<!--' | grep -v '(none yet)' | grep -Eq '\S'
+    | grep -v '^<!--' | grep -vE '\(none yet\)|\(пока нет\)' | grep -Eq '\S'
 }
 
 # Stop if every ROADMAP checkbox is ticked.
@@ -50,9 +52,9 @@ for ((i=1; i<=MAX_CYCLES; i++)); do
   # --permission-mode acceptEdits lets it edit files without prompting; review the
   # git diff regularly. Drop it if you want to approve each change manually.
   claude -p "Run one orchestrator cycle as defined in your agent instructions: \
-read STATE.md then ROADMAP.md, pick the next eligible task, delegate, verify \
-Definition of Done, then update ROADMAP.md and STATE.md. Do exactly one task. \
-Complete exactly one task, then commit the changes to master and publish them." \
+    read STATE.md then ROADMAP.md, pick the next eligible task, delegate, verify \
+    Definition of Done, then update ROADMAP.md and STATE.md. Do exactly one task. \
+    Complete exactly one task, then commit the changes to master and publish them." \
     --agent orchestrator \
     --model "$MODEL" \
     --permission-mode acceptEdits
