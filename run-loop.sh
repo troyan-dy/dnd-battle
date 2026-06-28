@@ -49,9 +49,10 @@ for ((i=1; i<=MAX_CYCLES; i++)); do
   # Headless run. --agent picks the orchestrator as the main-thread agent.
   # --permission-mode acceptEdits lets it edit files without prompting; review the
   # git diff regularly. Drop it if you want to approve each change manually.
-  claude -p "Выполните один цикл работы оркестратора в соответствии с инструкциями для агента: \
-прочитайте STATE.md, затем ROADMAP.md, выберите следующую подходящую задачу, делегируйте её, проверьте \
-соответствие критериям готовности (Definition of Done), после чего обновите ROADMAP.md и STATE.md. Выполните ровно одну задачу затем зафиксируй изменения в master и опубликуй изменения." \
+  claude -p "Run one orchestrator cycle as defined in your agent instructions: \
+read STATE.md then ROADMAP.md, pick the next eligible task, delegate, verify \
+Definition of Done, then update ROADMAP.md and STATE.md. Do exactly one task. \
+Complete exactly one task, then commit the changes to master and publish them." \
     --agent orchestrator \
     --model "$MODEL" \
     --permission-mode acceptEdits
