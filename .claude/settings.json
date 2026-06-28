@@ -1,0 +1,27 @@
+{
+  "//": "Optional. Verify the exact hook schema against the current Claude Code docs before relying on it. The run-loop.sh already handles chaining; hooks are an extra safety net.",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"[stop] cycle ended at $(date -u +%FT%TZ)\" >> .loop/loop.log"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"[subagent-stop] $(date -u +%FT%TZ)\" >> .loop/loop.log"
+          }
+        ]
+      }
+    ]
+  }
+}
