@@ -51,7 +51,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Marks / pings on the board (temporary, visible to everyone)
 - [x] Initiative tracker + turn order; "end turn" advances it
 - [x] Apply damage/healing to a token; HP updates broadcast live
-- [ ] Basic attack flow: choose target → roll → apply result, all see the log
+- [x] Basic attack flow: choose target → roll → apply result, all see the log
 - [ ] Shared combat log panel
 
 ## Phase 6 — D&D 2024 rules engine

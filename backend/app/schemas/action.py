@@ -34,6 +34,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.rules.dice import D20_SIDES, DiceExpressionError, parse_dice
 from app.schemas.room import GRID_COORD_MAX, GRID_COORD_MIN
 
 # Current Action-protocol version. Clients stamp this on every intent; the server
@@ -51,6 +52,12 @@ HEAL_AMOUNT_MAX = 1000
 MARK_LABEL_MAX_LENGTH = 60
 MARK_COLOR_MAX_LENGTH = 32
 
+# Attack bounds: a flat to-hit bonus and the max length of a damage dice expression.
+ATTACK_BONUS_MIN = -20
+ATTACK_BONUS_MAX = 20
+DAMAGE_EXPR_MAX_LENGTH = 32
+DEFAULT_ATTACK_DAMAGE = "1d6"
+
 
 class ActionType(enum.StrEnum):
     """Discriminator values for the per-action payloads."""
@@ -59,6 +66,7 @@ class ActionType(enum.StrEnum):
     MARK = "mark"
     DAMAGE = "damage"
     HEAL = "heal"
+    ATTACK = "attack"
     END_TURN = "endTurn"
 
 
@@ -114,18 +122,89 @@ class HealPayload(BaseModel):
     )
 
 
+class AttackIntentPayload(BaseModel):
+    """Client → server: an attack from one token against another (Phase 5).
+
+    Carries only the participants and the attacker's offence: a flat to-hit
+    ``attack_bonus`` and a ``damage`` dice expression (e.g. ``"1d8+3"``). The d20
+    attack roll and the damage roll are made by the SERVER (CLAUDE.md rule 1) and
+    returned in :class:`AttackResultPayload`; the client never supplies a result,
+    so this is an INTENT-only payload (it appears in the intent union, not the
+    broadcast union).
+    """
+
+    type: Literal[ActionType.ATTACK] = ActionType.ATTACK
+    attacker_token_id: uuid.UUID = Field(description="Token making the attack.")
+    target_token_id: uuid.UUID = Field(description="Token being attacked.")
+    attack_bonus: int = Field(
+        default=0,
+        ge=ATTACK_BONUS_MIN,
+        le=ATTACK_BONUS_MAX,
+        description="Flat bonus added to the d20 attack roll.",
+    )
+    damage: str = Field(
+        default=DEFAULT_ATTACK_DAMAGE,
+        max_length=DAMAGE_EXPR_MAX_LENGTH,
+        description="Damage dice expression, e.g. '1d8+3'.",
+    )
+
+    @field_validator("damage")
+    @classmethod
+    def _check_damage(cls, value: str) -> str:
+        """Reject a malformed / out-of-bounds dice expression at parse time."""
+        try:
+            parse_dice(value)
+        except DiceExpressionError as exc:
+            raise ValueError(str(exc)) from exc
+        return value
+
+
+class AttackResultPayload(BaseModel):
+    """Server → all clients: the resolved outcome of an attack — the log line.
+
+    Built by the server after rolling: the raw d20, the bonus + total, and the
+    rolled damage breakdown applied to the target. This is what everyone sees in
+    the shared combat log. It is BROADCAST-only (it never arrives as a client
+    intent), so it appears in the broadcast union, not the intent union.
+
+    Basic flow (Phase 5): the attack always lands and applies its damage. Hit/miss
+    versus AC and advantage/disadvantage are the Phase-6 rules-engine task; the
+    ``attack_total`` is already carried here so that step can gate on it later.
+    """
+
+    type: Literal[ActionType.ATTACK] = ActionType.ATTACK
+    attacker_token_id: uuid.UUID = Field(description="Token that made the attack.")
+    target_token_id: uuid.UUID = Field(description="Token that was attacked.")
+    attack_roll: int = Field(ge=1, le=D20_SIDES, description="The raw d20 result (1..20).")
+    attack_bonus: int = Field(description="Flat bonus added to the d20 roll.")
+    attack_total: int = Field(description="attack_roll + attack_bonus.")
+    damage: str = Field(description="The damage dice expression that was rolled.")
+    damage_rolls: list[int] = Field(description="Each individual damage die result.")
+    damage_total: int = Field(ge=0, description="Total damage applied to the target.")
+
+
 class EndTurnPayload(BaseModel):
     """Advance the initiative order to the next combatant. Carries no data."""
 
     type: Literal[ActionType.END_TURN] = ActionType.END_TURN
 
 
-# Discriminated union of every concrete action payload. Pydantic selects the
-# member by the ``type`` field, so unknown / mismatched types fail to parse.
-ActionPayload = Annotated[
-    MovePayload | MarkPayload | DamagePayload | HealPayload | EndTurnPayload,
+# Discriminated unions of the concrete action payloads. Pydantic selects the member
+# by the ``type`` field, so unknown / mismatched types fail to parse.
+#
+# Intent vs broadcast diverge ONLY for ``attack``: the client sends an
+# :class:`AttackIntentPayload` (no roll), the server rolls and broadcasts an
+# :class:`AttackResultPayload`. Every other action is identical in both directions.
+IntentActionPayload = Annotated[
+    MovePayload | MarkPayload | DamagePayload | HealPayload | AttackIntentPayload | EndTurnPayload,
     Field(discriminator="type"),
 ]
+BroadcastActionPayload = Annotated[
+    MovePayload | MarkPayload | DamagePayload | HealPayload | AttackResultPayload | EndTurnPayload,
+    Field(discriminator="type"),
+]
+# Backward-compatible alias: an INTENT payload (what ``validate_intent`` returns).
+ActionPayload = IntentActionPayload
 
 
 def _validate_protocol_version(value: int) -> int:
@@ -148,7 +227,7 @@ class ActionIntent(BaseModel):
     version: int = Field(
         default=ACTION_PROTOCOL_VERSION, description="Action-protocol version the client speaks."
     )
-    payload: ActionPayload
+    payload: IntentActionPayload
 
     @field_validator("version")
     @classmethod
@@ -172,7 +251,7 @@ class Action(BaseModel):
         description="Participant the server attributes this action to."
     )
     seq: int = Field(ge=0, description="Per-room monotonic sequence number.")
-    payload: ActionPayload
+    payload: BroadcastActionPayload
 
     @field_validator("version")
     @classmethod

@@ -13,6 +13,7 @@ Three layers:
 from __future__ import annotations
 
 import datetime as dt
+import random
 import uuid
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock
@@ -658,6 +659,64 @@ async def test_handle_action_player_mark_broadcasts_without_mutation(seeded: See
         character = await session.get(Character, seeded.player_character_id)
         assert character is not None
         assert character.current_hp == 20
+
+
+async def test_handle_action_host_attack_resolves_and_broadcasts(seeded: SeededBoard) -> None:
+    """A host attack rolls server-side, applies the rolled damage, and broadcasts it.
+
+    The roll is server-authoritative (CLAUDE.md rule 1): the client sends only the
+    attacker/target + offence, the server rolls (deterministically here via a seeded
+    rng), reduces the target character's durable HP by exactly the rolled damage, and
+    broadcasts an `attack` result everyone can log.
+    """
+    sio = _fake_sio()
+    _joined(
+        sio,
+        JoinedIdentity(
+            room_id=seeded.room_id,
+            role=ParticipantRole.host,
+            participant_id=uuid.uuid4(),
+            character_id=None,
+        ),
+    )
+    token_id = await _seeded_token_id(seeded)
+    intent = {
+        "version": 1,
+        "payload": {
+            "type": "attack",
+            "attacker_token_id": str(token_id),
+            "target_token_id": str(token_id),
+            "attack_bonus": 3,
+            "damage": "1d6",
+        },
+    }
+
+    ack = await handle_action(
+        sio,
+        "sid1",
+        intent,
+        sequencer=RoomSequencer(),
+        rng=random.Random(1),
+        session_factory=seeded.factory,
+    )
+
+    assert ack["ok"] is True
+    sio.emit.assert_awaited_once()
+    args, kwargs = sio.emit.await_args
+    assert args[0] == "action"
+    assert kwargs == {"room": room_name(str(seeded.room_id))}
+    payload = args[1]["payload"]
+    assert payload["type"] == "attack"
+    assert 1 <= payload["attack_roll"] <= 20
+    assert payload["attack_total"] == payload["attack_roll"] + 3
+    damage_total = payload["damage_total"]
+    assert damage_total >= 0
+
+    # The target character's durable HP dropped by exactly the rolled damage.
+    async with seeded.factory() as session:
+        character = await session.get(Character, seeded.player_character_id)
+        assert character is not None
+        assert character.current_hp == max(0, 20 - damage_total)
 
 
 async def test_handle_action_seq_is_monotonic_per_room(seeded: SeededBoard) -> None:

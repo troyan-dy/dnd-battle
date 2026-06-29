@@ -8,6 +8,7 @@ cross-owner / cross-room / unknown tokens are rejected, and non-token actions
 
 from __future__ import annotations
 
+import random
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -25,13 +26,14 @@ from app.models import (
 )
 from app.schemas.action import (
     ActionIntent,
+    AttackIntentPayload,
     DamagePayload,
     EndTurnPayload,
     HealPayload,
     MarkPayload,
     MovePayload,
 )
-from app.services.actions import IntentValidationError, validate_intent
+from app.services.actions import IntentValidationError, resolve_attack, validate_intent
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -114,6 +116,14 @@ def _damage(token_id: uuid.UUID, amount: int = 3) -> ActionIntent:
 
 def _heal(token_id: uuid.UUID, amount: int = 3) -> ActionIntent:
     return ActionIntent(payload=HealPayload(token_id=token_id, amount=amount))
+
+
+def _attack(attacker: uuid.UUID, target: uuid.UUID, *, damage: str = "1d6") -> ActionIntent:
+    return ActionIntent(
+        payload=AttackIntentPayload(
+            attacker_token_id=attacker, target_token_id=target, damage=damage
+        )
+    )
 
 
 # --- host permissions -----------------------------------------------------------
@@ -247,6 +257,92 @@ async def test_player_with_no_character_cannot_target_a_token(seeded: Seeded) ->
                 character_id=None,
                 intent=_move(seeded.token1_id),
             )
+
+
+# --- attack permissions + resolution --------------------------------------------
+
+
+async def test_host_may_attack_any_token(seeded: Seeded) -> None:
+    async with seeded.factory() as session:
+        payload = await validate_intent(
+            session,
+            room_id=seeded.room_id,
+            role=ParticipantRole.host,
+            character_id=None,
+            intent=_attack(seeded.token1_id, seeded.token2_id),
+        )
+    assert isinstance(payload, AttackIntentPayload)
+    assert payload.attacker_token_id == seeded.token1_id
+    assert payload.target_token_id == seeded.token2_id
+
+
+async def test_player_may_attack_from_own_token(seeded: Seeded) -> None:
+    async with seeded.factory() as session:
+        payload = await validate_intent(
+            session,
+            room_id=seeded.room_id,
+            role=ParticipantRole.player,
+            character_id=seeded.p1_character_id,
+            intent=_attack(seeded.token1_id, seeded.token2_id),
+        )
+    assert isinstance(payload, AttackIntentPayload)
+
+
+async def test_player_cannot_attack_from_a_foreign_token(seeded: Seeded) -> None:
+    """The attacker token must be the player's own; attacking WITH token2 is rejected."""
+    async with seeded.factory() as session:
+        with pytest.raises(IntentValidationError) as exc:
+            await validate_intent(
+                session,
+                room_id=seeded.room_id,
+                role=ParticipantRole.player,
+                character_id=seeded.p1_character_id,
+                intent=_attack(seeded.token2_id, seeded.token1_id),
+            )
+    assert "your own token" in exc.value.reason
+
+
+async def test_attack_target_must_be_on_this_board(seeded: Seeded) -> None:
+    async with seeded.factory() as session:
+        with pytest.raises(IntentValidationError) as exc:
+            await validate_intent(
+                session,
+                room_id=seeded.room_id,
+                role=ParticipantRole.host,
+                character_id=None,
+                intent=_attack(seeded.token1_id, seeded.other_room_token_id),
+            )
+    assert "not on this board" in exc.value.reason
+
+
+async def test_resolve_attack_rolls_and_applies_damage(seeded: Seeded) -> None:
+    """resolve_attack rolls the d20 + damage, applies it to the target (clamped)."""
+    rng = random.Random(0)
+    async with seeded.factory() as session:
+        result = await resolve_attack(
+            session,
+            room_id=seeded.room_id,
+            payload=AttackIntentPayload(
+                attacker_token_id=seeded.token1_id,
+                target_token_id=seeded.token2_id,
+                attack_bonus=4,
+                damage="2d6+1",
+            ),
+            rng=rng,
+        )
+        await session.commit()
+
+    assert 1 <= result.attack_roll <= 20
+    assert result.attack_total == result.attack_roll + 4
+    assert len(result.damage_rolls) == 2
+    assert result.damage_total == sum(result.damage_rolls) + 1
+    assert result.damage_total >= 0
+
+    # char2 started at 30 HP; HP dropped by exactly the rolled damage.
+    async with seeded.factory() as session:
+        target = await session.get(Character, seeded.p2_character_id)
+        assert target is not None
+        assert target.current_hp == 30 - result.damage_total
 
 
 # --- state bounds ---------------------------------------------------------------

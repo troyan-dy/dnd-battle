@@ -30,6 +30,7 @@ a fake server and so static typing is unaffected by the untyped Socket.IO librar
 
 from __future__ import annotations
 
+import random
 import uuid
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
@@ -42,10 +43,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import async_session_factory
 from app.models.enums import ParticipantRole
 from app.realtime.sequence import RoomSequencer
-from app.schemas.action import Action, ActionIntent
+from app.schemas.action import (
+    Action,
+    ActionIntent,
+    AttackIntentPayload,
+    BroadcastActionPayload,
+)
 from app.services.actions import (
     IntentValidationError,
     apply_action,
+    resolve_attack,
     validate_intent,
 )
 from app.services.board import build_board_state
@@ -67,6 +74,10 @@ _INVALID_TOKEN_ERROR = "Invalid or expired invite link."
 _NOT_JOINED_ERROR = "Join a room before sending actions."
 # Rejection for an intent that fails to parse (bad protocol version / bounds / type).
 _MALFORMED_ACTION_ERROR = "Malformed or unsupported action."
+
+# Process RNG used for server-authoritative dice rolls (CLAUDE.md rule 1). Tests
+# inject a seeded Random for deterministic results.
+_DEFAULT_RNG = random.Random()
 
 
 @dataclass(frozen=True)
@@ -183,6 +194,7 @@ async def handle_action(
     data: Any,
     *,
     sequencer: RoomSequencer,
+    rng: random.Random = _DEFAULT_RNG,
     session_factory: SessionFactory = async_session_factory,
 ) -> dict[str, Any]:
     """Validate a client's action intent, apply it, and broadcast the Action.
@@ -216,7 +228,17 @@ async def handle_action(
         except IntentValidationError as exc:
             return await _reject_action(sio, sid, exc.reason)
 
-        await apply_action(session, room_id=identity.room_id, payload=payload)
+        # An attack is RESOLVED server-side (dice rolled here, damage applied) and
+        # broadcast as its result payload; every other action's durable effect is
+        # applied and the validated intent payload is broadcast unchanged.
+        broadcast_payload: BroadcastActionPayload
+        if isinstance(payload, AttackIntentPayload):
+            broadcast_payload = await resolve_attack(
+                session, room_id=identity.room_id, payload=payload, rng=rng
+            )
+        else:
+            await apply_action(session, room_id=identity.room_id, payload=payload)
+            broadcast_payload = payload
         await session.commit()
 
     seq = sequencer.next_seq(str(identity.room_id))
@@ -225,7 +247,7 @@ async def handle_action(
         room_id=identity.room_id,
         actor_participant_id=identity.participant_id,
         seq=seq,
-        payload=payload,
+        payload=broadcast_payload,
     )
     # Broadcast to EVERYONE in the room (including the sender, which reconciles its
     # optimistic update against this authoritative event — next Phase 4 task).
@@ -249,6 +271,7 @@ def register_handlers(sio: Any) -> None:
     a per-room monotonic ``seq`` for this server process.
     """
     sequencer = RoomSequencer()
+    rng = random.Random()
 
     async def _connect(sid: str, environ: Any, auth: Any = None) -> bool:
         return await handle_connect(sio, sid, environ, auth)
@@ -260,7 +283,7 @@ def register_handlers(sio: Any) -> None:
         return await handle_join(sio, sid, data)
 
     async def _action(sid: str, data: Any) -> dict[str, Any]:
-        return await handle_action(sio, sid, data, sequencer=sequencer)
+        return await handle_action(sio, sid, data, sequencer=sequencer, rng=rng)
 
     sio.on("connect", _connect)
     sio.on("disconnect", _disconnect)

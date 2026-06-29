@@ -310,4 +310,151 @@ describe('MapBoard', () => {
       amount: 1,
     });
   });
+
+  it('applies attack damage live and logs it when an attack is broadcast', async () => {
+    renderLoadedBoard();
+    await flushHydrate();
+
+    act(() => {
+      socketHarness.options?.onBoardState?.({
+        room_id: 'room-1',
+        tokens: [
+          { id: 't1', room_id: 'room-1', character_id: 'c1', x: 1, y: 1, size: 1 },
+          { id: 't2', room_id: 'room-1', character_id: 'c2', x: 2, y: 2, size: 1 },
+        ],
+        characters: [
+          {
+            id: 'c1',
+            room_id: 'room-1',
+            name: 'Goblin',
+            max_hp: 15,
+            current_hp: 15,
+            portrait_url: null,
+            ability_scores: {
+              strength: 10,
+              dexterity: 10,
+              constitution: 10,
+              intelligence: 10,
+              wisdom: 10,
+              charisma: 10,
+            },
+            conditions: [],
+          },
+          {
+            id: 'c2',
+            room_id: 'room-1',
+            name: 'Aria',
+            max_hp: 25,
+            current_hp: 25,
+            portrait_url: null,
+            ability_scores: {
+              strength: 10,
+              dexterity: 10,
+              constitution: 10,
+              intelligence: 10,
+              wisdom: 10,
+              charisma: 10,
+            },
+            conditions: [],
+          },
+        ],
+        initiative: { active_index: null, round: 1, entries: [] },
+      });
+    });
+
+    expect(screen.getByText('25/25')).toBeInTheDocument();
+
+    const attack: Action = {
+      version: 1,
+      id: 'act-atk-1',
+      room_id: 'room-1',
+      actor_participant_id: 'p-1',
+      seq: 3,
+      payload: {
+        type: 'attack',
+        attacker_token_id: 't1',
+        target_token_id: 't2',
+        attack_roll: 14,
+        attack_bonus: 2,
+        attack_total: 16,
+        damage: '1d6',
+        damage_rolls: [5],
+        damage_total: 7,
+      },
+    };
+    act(() => {
+      socketHarness.options?.onAction?.(attack);
+    });
+
+    // Target HP dropped by the rolled damage and the log shows the line.
+    expect(screen.getByText('18/25')).toBeInTheDocument();
+    expect(screen.getByRole('log')).toHaveTextContent(
+      'Goblin attacks Aria: d20 (14) +2 = 16; 1d6 → 7 damage',
+    );
+  });
+
+  it('host can launch an attack via the attack controls', async () => {
+    const img = { width: 640, height: 480 } as HTMLImageElement;
+    imageState.current = { image: img, status: 'loaded' };
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+    render(<MapBoard roomId="room-1" token="tok-1" isHost />);
+    await flushHydrate();
+
+    act(() => {
+      socketHarness.options?.onBoardState?.({
+        room_id: 'room-1',
+        tokens: [
+          { id: 't1', room_id: 'room-1', character_id: 'c1', x: 1, y: 1, size: 1 },
+          { id: 't2', room_id: 'room-1', character_id: 'c2', x: 2, y: 2, size: 1 },
+        ],
+        characters: [
+          {
+            id: 'c1',
+            room_id: 'room-1',
+            name: 'Goblin',
+            max_hp: 15,
+            current_hp: 15,
+            portrait_url: null,
+            ability_scores: {
+              strength: 10,
+              dexterity: 10,
+              constitution: 10,
+              intelligence: 10,
+              wisdom: 10,
+              charisma: 10,
+            },
+            conditions: [],
+          },
+          {
+            id: 'c2',
+            room_id: 'room-1',
+            name: 'Aria',
+            max_hp: 25,
+            current_hp: 25,
+            portrait_url: null,
+            ability_scores: {
+              strength: 10,
+              dexterity: 10,
+              constitution: 10,
+              intelligence: 10,
+              wisdom: 10,
+              charisma: 10,
+            },
+            conditions: [],
+          },
+        ],
+        initiative: { active_index: null, round: 1, entries: [] },
+      });
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Attack' }));
+    expect(socketHarness.emitAction).toHaveBeenCalledWith(socketHarness.socket, {
+      type: 'attack',
+      attacker_token_id: 't1',
+      target_token_id: 't2',
+      attack_bonus: 0,
+      damage: '1d6',
+    });
+  });
 });

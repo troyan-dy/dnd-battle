@@ -14,6 +14,8 @@ from app.schemas.action import (
     Action,
     ActionIntent,
     ActionType,
+    AttackIntentPayload,
+    AttackResultPayload,
     DamagePayload,
     EndTurnPayload,
     HealPayload,
@@ -74,6 +76,71 @@ def test_heal_payload_selects_correct_member() -> None:
 def test_heal_amount_bounds_enforced(bad_amount: int) -> None:
     with pytest.raises(ValidationError):
         HealPayload(token_id=uuid.uuid4(), amount=bad_amount)
+
+
+def test_attack_intent_parses_via_discriminator_with_defaults() -> None:
+    attacker, target = uuid.uuid4(), uuid.uuid4()
+    intent = ActionIntent.model_validate(
+        {
+            "payload": {
+                "type": "attack",
+                "attacker_token_id": str(attacker),
+                "target_token_id": str(target),
+            }
+        }
+    )
+    assert isinstance(intent.payload, AttackIntentPayload)
+    assert intent.payload.type is ActionType.ATTACK
+    assert intent.payload.attacker_token_id == attacker
+    assert intent.payload.target_token_id == target
+    # Defaults: no bonus, a 1d6 strike.
+    assert intent.payload.attack_bonus == 0
+    assert intent.payload.damage == "1d6"
+
+
+def test_attack_intent_rejects_malformed_damage_expression() -> None:
+    with pytest.raises(ValidationError):
+        AttackIntentPayload(
+            attacker_token_id=uuid.uuid4(),
+            target_token_id=uuid.uuid4(),
+            damage="not-dice",
+        )
+
+
+@pytest.mark.parametrize("bad_bonus", [-21, 21])
+def test_attack_bonus_bounds_enforced(bad_bonus: int) -> None:
+    with pytest.raises(ValidationError):
+        AttackIntentPayload(
+            attacker_token_id=uuid.uuid4(),
+            target_token_id=uuid.uuid4(),
+            attack_bonus=bad_bonus,
+        )
+
+
+def test_attack_result_broadcasts_with_roll_breakdown() -> None:
+    action = Action(
+        id=uuid.uuid4(),
+        room_id=uuid.uuid4(),
+        actor_participant_id=uuid.uuid4(),
+        seq=3,
+        payload=AttackResultPayload(
+            attacker_token_id=uuid.uuid4(),
+            target_token_id=uuid.uuid4(),
+            attack_roll=14,
+            attack_bonus=5,
+            attack_total=19,
+            damage="1d8+3",
+            damage_rolls=[6],
+            damage_total=9,
+        ),
+    )
+    dumped = action.model_dump(mode="json")
+    assert dumped["payload"]["type"] == "attack"
+    assert dumped["payload"]["attack_total"] == 19
+    assert dumped["payload"]["damage_total"] == 9
+    reparsed = Action.model_validate(dumped)
+    assert isinstance(reparsed.payload, AttackResultPayload)
+    assert reparsed.payload.damage_rolls == [6]
 
 
 def test_unknown_action_type_is_rejected() -> None:

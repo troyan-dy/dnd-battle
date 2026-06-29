@@ -152,7 +152,7 @@ export interface BoardState {
 /** Current Action-protocol version (mirrors ACTION_PROTOCOL_VERSION). */
 export const ACTION_PROTOCOL_VERSION = 1;
 
-export type ActionType = 'move' | 'mark' | 'damage' | 'heal' | 'endTurn';
+export type ActionType = 'move' | 'mark' | 'damage' | 'heal' | 'attack' | 'endTurn';
 
 /** Move a token to a grid cell. */
 export interface MovePayload {
@@ -185,14 +185,59 @@ export interface HealPayload {
   amount: number;
 }
 
+/**
+ * Client → server: an attack from one token against another. Carries only the
+ * participants + the attacker's offence; the SERVER rolls the d20 and damage
+ * (CLAUDE.md rule 1) and broadcasts an {@link AttackResultPayload}. Intent-only.
+ */
+export interface AttackIntentPayload {
+  type: 'attack';
+  attacker_token_id: string;
+  target_token_id: string;
+  /** Flat to-hit bonus added to the d20 (defaults to 0 server-side). */
+  attack_bonus?: number;
+  /** Damage dice expression, e.g. "1d8+3" (defaults to "1d6" server-side). */
+  damage: string;
+}
+
+/**
+ * Server → all clients: the resolved outcome of an attack (the combat-log line).
+ * Built by the server after rolling. Broadcast-only — never sent as an intent.
+ */
+export interface AttackResultPayload {
+  type: 'attack';
+  attacker_token_id: string;
+  target_token_id: string;
+  /** The raw d20 result (1..20). */
+  attack_roll: number;
+  attack_bonus: number;
+  attack_total: number;
+  damage: string;
+  damage_rolls: number[];
+  damage_total: number;
+}
+
 /** Advance the initiative order to the next combatant. */
 export interface EndTurnPayload {
   type: 'endTurn';
 }
 
-/** Discriminated union of every concrete action payload (key: `type`). */
-export type ActionPayload =
-  MovePayload | MarkPayload | DamagePayload | HealPayload | EndTurnPayload;
+/**
+ * Discriminated union of the payloads a client may SEND (key: `type`). Mirrors the
+ * server `IntentActionPayload`: an attack carries no roll result.
+ */
+export type IntentActionPayload =
+  MovePayload | MarkPayload | DamagePayload | HealPayload | AttackIntentPayload | EndTurnPayload;
+
+/**
+ * Discriminated union of the payloads the server BROADCASTS. Mirrors the server
+ * `BroadcastActionPayload`: an attack carries the resolved roll result.
+ */
+export type BroadcastActionPayload =
+  MovePayload | MarkPayload | DamagePayload | HealPayload | AttackResultPayload | EndTurnPayload;
+
+/** Backward-compatible alias for an INTENT payload (what a client sends). */
+export type ActionPayload = IntentActionPayload;
 
 /**
  * Client → server: a request to perform a board action. Carries only the
@@ -200,7 +245,7 @@ export type ActionPayload =
  */
 export interface ActionIntent {
   version?: number;
-  payload: ActionPayload;
+  payload: IntentActionPayload;
 }
 
 /**
@@ -213,5 +258,5 @@ export interface Action {
   room_id: string;
   actor_participant_id: string;
   seq: number;
-  payload: ActionPayload;
+  payload: BroadcastActionPayload;
 }

@@ -31,8 +31,11 @@ import { DEFAULT_GRID, MIN_CELL_SIZE, type GridConfig } from './grid';
 import TokenLayer from './TokenLayer';
 import MarkLayer from './MarkLayer';
 import HpControls from './HpControls';
+import AttackControls from './AttackControls';
+import CombatLogPanel from './CombatLogPanel';
 import InitiativeTracker from './InitiativeTracker';
 import { applyHpAction } from './hp';
+import { appendLogEntry, attackLogEntry, type CombatLogEntry } from './combatLog';
 import { advanceInitiative, EMPTY_INITIATIVE } from './initiative';
 import { addMark, markFromAction, pruneExpired, type BoardMark } from './marks';
 import { joinTokens, worldToCell } from './tokens';
@@ -107,6 +110,7 @@ export default function MapBoard({
   const [board, setBoard] = useState<ReconcilableBoard>(EMPTY_BOARD);
   const [characters, setCharacters] = useState<CharacterResponse[]>([]);
   const [marks, setMarks] = useState<BoardMark[]>([]);
+  const [log, setLog] = useState<CombatLogEntry[]>([]);
   const [initiative, setInitiative] = useState<InitiativeState>(EMPTY_INITIATIVE);
   const [pingMode, setPingMode] = useState(false);
   const socketRef = useRef<Socket | null>(null);
@@ -172,6 +176,26 @@ export default function MapBoard({
           const target = boardRef.current.authoritative.get(payload.token_id);
           if (target) {
             setCharacters((cs) => applyHpAction(cs, target.character_id, payload));
+          }
+          return;
+        }
+        if (action.payload.type === 'attack') {
+          // The server already rolled + applied the damage; reflect the HP drop on
+          // the target live and append the roll to the shared combat log.
+          const payload = action.payload;
+          const target = boardRef.current.authoritative.get(payload.target_token_id);
+          if (target) {
+            setCharacters((cs) =>
+              applyHpAction(cs, target.character_id, {
+                type: 'damage',
+                token_id: payload.target_token_id,
+                amount: payload.damage_total,
+              }),
+            );
+          }
+          const entry = attackLogEntry(action);
+          if (entry) {
+            setLog((entries) => appendLogEntry(entries, entry));
           }
           return;
         }
@@ -272,7 +296,28 @@ export default function MapBoard({
     void emitAction(socket, { type: 'heal', token_id: tokenId, amount });
   }, []);
 
+  // Make an attack: emit the intent and let the server roll + apply + broadcast.
+  // The resulting `attack` Action (handled in onAction) updates HP and the log.
+  const handleAttack = useCallback(
+    (attackerId: string, targetId: string, bonus: number, damage: string) => {
+      const socket = socketRef.current;
+      if (!socket) {
+        return;
+      }
+      void emitAction(socket, {
+        type: 'attack',
+        attacker_token_id: attackerId,
+        target_token_id: targetId,
+        attack_bonus: bonus,
+        damage,
+      });
+    },
+    [],
+  );
+
   const tokens = joinTokens(displayTokens(board), characters);
+  // Token ids this client may attack WITH (host: all; player: its own token).
+  const controllableTokenIds = tokens.filter((t) => canDrag(t.token)).map((t) => t.token.id);
 
   // Frame the map to fit once it (and the container) are known.
   useEffect(() => {
@@ -347,6 +392,14 @@ export default function MapBoard({
         onEndTurn={handleEndTurn}
       />
       {isHost && <HpControls tokens={tokens} onDamage={handleDamage} onHeal={handleHeal} />}
+      {controllableTokenIds.length > 0 && (
+        <AttackControls
+          tokens={tokens}
+          controllableTokenIds={controllableTokenIds}
+          onAttack={handleAttack}
+        />
+      )}
+      <CombatLogPanel entries={log} tokens={tokens} />
       {status === 'loaded' && image && (
         <div className="map-board__grid-controls">
           <button

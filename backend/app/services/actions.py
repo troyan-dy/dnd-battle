@@ -36,6 +36,7 @@ broadcast are the next Phase 4 tasks.
 
 from __future__ import annotations
 
+import random
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,9 +45,12 @@ from app.models.character import Character
 from app.models.enums import ParticipantRole
 from app.models.room import Room
 from app.models.token import Token
+from app.rules.dice import roll_d20, roll_dice
 from app.schemas.action import (
     ActionIntent,
     ActionPayload,
+    AttackIntentPayload,
+    AttackResultPayload,
     DamagePayload,
     EndTurnPayload,
     HealPayload,
@@ -100,6 +104,18 @@ async def validate_intent(
             character_id=character_id,
             token_id=payload.token_id,
         )
+    # An attack is authorised by the ATTACKER token (the actor must control it, same
+    # rule as move/damage); the TARGET only has to be a token on this board — you may
+    # attack anyone (whose-turn gating is left to the initiative-driven flow).
+    elif isinstance(payload, AttackIntentPayload):
+        await _authorize_token_target(
+            session,
+            room_id=room_id,
+            role=role,
+            character_id=character_id,
+            token_id=payload.attacker_token_id,
+        )
+        await _require_token_in_room(session, room_id=room_id, token_id=payload.target_token_id)
     # Ending a turn is gated by whose turn it is: the host may always advance the
     # order; a player may only end the turn of their OWN active combatant.
     elif isinstance(payload, EndTurnPayload):
@@ -132,6 +148,22 @@ async def _authorize_token_target(
     # Player: the token must be bound to this participant's own character.
     if character_id is None or token.character_id != character_id:
         raise IntentValidationError(_TOKEN_NOT_OWNED)
+
+
+async def _require_token_in_room(
+    session: AsyncSession,
+    *,
+    room_id: uuid.UUID,
+    token_id: uuid.UUID,
+) -> None:
+    """Ensure ``token_id`` exists and belongs to ``room_id`` (no ownership check).
+
+    Used for an attack's TARGET: any token on this board is a legal target. Raises
+    :class:`IntentValidationError` with the generic on-board message otherwise.
+    """
+    token = await session.get(Token, token_id)
+    if token is None or token.room_id != room_id:
+        raise IntentValidationError(_TOKEN_NOT_ON_BOARD)
 
 
 async def _authorize_end_turn(
@@ -202,3 +234,49 @@ async def apply_action(
         room = await session.get(Room, room_id)
         if room is not None:
             await advance_turn(session, room=room)
+
+
+async def resolve_attack(
+    session: AsyncSession,
+    *,
+    room_id: uuid.UUID,
+    payload: AttackIntentPayload,
+    rng: random.Random,
+) -> AttackResultPayload:
+    """Roll a VALIDATED attack, apply its damage, and return the broadcast result.
+
+    Server-authoritative roll (CLAUDE.md rule 1): the d20 and the damage dice are
+    rolled HERE with the injected ``rng`` — the client never supplies them. The
+    rolled damage is applied to the target character's durable HP (clamped at 0)
+    BEFORE broadcast, so :func:`app.services.board.build_board_state` stays
+    authoritative and a reconnecting client rebuilds the post-attack board
+    (reconnect-safe, CLAUDE.md rule 2). The caller commits.
+
+    Basic flow (Phase 5): the attack always lands and applies its damage. Comparing
+    ``attack_total`` against the target's AC (hit/miss) and advantage/disadvantage
+    are the Phase-6 rules-engine task; the totals are already carried in the result.
+
+    The ``None`` guards are defensive: :func:`validate_intent` already proved both
+    tokens (and the target's character) exist in ``room_id``.
+    """
+    attack_roll = roll_d20(rng=rng)
+    attack_total = attack_roll + payload.attack_bonus
+    damage = roll_dice(payload.damage, rng=rng)
+    damage_total = max(0, damage.total)
+
+    target_token = await session.get(Token, payload.target_token_id)
+    if target_token is not None and target_token.room_id == room_id:
+        character = await session.get(Character, target_token.character_id)
+        if character is not None:
+            character.current_hp = max(0, character.current_hp - damage_total)
+
+    return AttackResultPayload(
+        attacker_token_id=payload.attacker_token_id,
+        target_token_id=payload.target_token_id,
+        attack_roll=attack_roll,
+        attack_bonus=payload.attack_bonus,
+        attack_total=attack_total,
+        damage=payload.damage,
+        damage_rolls=list(damage.rolls),
+        damage_total=damage_total,
+    )
