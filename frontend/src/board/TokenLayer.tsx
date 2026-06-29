@@ -10,9 +10,10 @@
 // move intent and reconciles against the server broadcast). The server remains
 // authoritative — this only offers drags `canDrag` allows.
 
+import { useState } from 'react';
 import { Group, Rect, Text } from 'react-konva';
 import type Konva from 'konva';
-import type { GridConfig } from './grid';
+import { cellDistanceFeet, type GridConfig } from './grid';
 import type { TokenResponse } from '../api/types';
 import { hpBarColor, hpFraction, tokenRect, worldToCell, type PlacedToken } from './tokens';
 
@@ -34,6 +35,11 @@ const LABEL_BG = 'rgba(0, 0, 0, 0.55)';
 const HP_TRACK = 'rgba(0, 0, 0, 0.55)';
 
 export default function TokenLayer({ tokens, config, canDrag, onMove }: TokenLayerProps) {
+  // While a controllable token is being dragged we show a live "distance moved"
+  // readout in feet (D&D 2024 grid scale). Tracked per dragged token id so only
+  // that token shows its measurement; cleared on drop.
+  const [dragFeet, setDragFeet] = useState<{ tokenId: string; feet: number } | null>(null);
+
   return (
     <>
       {tokens.map(({ token, character }) => {
@@ -44,14 +50,27 @@ export default function TokenLayer({ tokens, config, canDrag, onMove }: TokenLay
         const fraction = hpFraction(character.current_hp, character.max_hp);
         const conditions = character.conditions.length > 0 ? character.conditions.join(', ') : '';
         const draggable = canDrag?.(token) ?? false;
+        const measuring = dragFeet?.tokenId === token.id ? dragFeet.feet : null;
+
+        // The candidate cell under the token's current (dragged) world top-left.
+        const cellUnderDrag = (node: Konva.Node) =>
+          worldToCell(rect.x + node.x(), rect.y + node.y(), config);
+
+        // As the token is dragged, measure feet from its origin cell to the cell
+        // it currently hovers over so the player can see how far they're moving.
+        const handleDragMove = (e: Konva.KonvaEventObject<DragEvent>) => {
+          const cell = cellUnderDrag(e.target);
+          setDragFeet({ tokenId: token.id, feet: cellDistanceFeet(token, cell) });
+        };
 
         // On drop, Konva offsets the Group by the drag delta. Convert the new
         // world top-left back to a grid cell, then reset the Group offset (React
         // re-renders the token at its new optimistic cell).
         const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
           const node = e.target;
-          const cell = worldToCell(rect.x + node.x(), rect.y + node.y(), config);
+          const cell = cellUnderDrag(node);
           node.position({ x: 0, y: 0 });
+          setDragFeet(null);
           onMove?.(token.id, cell);
         };
 
@@ -60,6 +79,7 @@ export default function TokenLayer({ tokens, config, canDrag, onMove }: TokenLay
             key={token.id}
             listening={draggable}
             draggable={draggable}
+            onDragMove={draggable ? handleDragMove : undefined}
             onDragEnd={draggable ? handleDragEnd : undefined}
           >
             {/* Footprint body */}
@@ -138,6 +158,22 @@ export default function TokenLayer({ tokens, config, canDrag, onMove }: TokenLay
                 text={conditions}
                 fontSize={font * 0.8}
                 fill="#f0d24b"
+                listening={false}
+                perfectDrawEnabled={false}
+              />
+            )}
+
+            {/* Live distance readout while this token is being dragged */}
+            {measuring !== null && (
+              <Text
+                x={rect.x + rect.width + pad}
+                y={rect.y}
+                text={`${measuring} ft`}
+                fontSize={font}
+                fill="#ffffff"
+                stroke={LABEL_BG}
+                strokeWidth={font * 0.18}
+                fillAfterStrokeEnabled
                 listening={false}
                 perfectDrawEnabled={false}
               />

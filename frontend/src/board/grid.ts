@@ -27,6 +27,35 @@ export const DEFAULT_GRID: GridConfig = { cellSize: 70, offsetX: 0, offsetY: 0 }
 /** Smallest cell we allow so we never emit an unbounded number of lines. */
 export const MIN_CELL_SIZE = 5;
 
+/**
+ * D&D 2024 standard grid scale: each square is 5 feet on a side, and every
+ * square entered — orthogonal OR diagonal — costs that same 5 feet (PHB 2024
+ * "Moving Around Other Creatures"/grid movement: diagonals are not penalised).
+ */
+export const DEFAULT_FEET_PER_CELL = 5;
+
+/**
+ * Distance in feet between two integer grid cells using the D&D 2024 standard
+ * rule: the number of squares moved is the Chebyshev distance (the larger of the
+ * two axis deltas, since a diagonal step covers one square of both), multiplied
+ * by the feet-per-square scale. Returns 0 for the same cell.
+ *
+ * Non-finite inputs or a non-positive scale yield 0 (defensive — a measurement
+ * is purely informational and must never throw mid-drag).
+ */
+export function cellDistanceFeet(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  feetPerCell: number = DEFAULT_FEET_PER_CELL,
+): number {
+  const dx = Math.abs(to.x - from.x);
+  const dy = Math.abs(to.y - from.y);
+  if (!Number.isFinite(dx) || !Number.isFinite(dy) || !(feetPerCell > 0)) {
+    return 0;
+  }
+  return Math.max(dx, dy) * feetPerCell;
+}
+
 /** Normalise an offset into the half-open range [0, cellSize). */
 export function normalizeOffset(offset: number, cellSize: number): number {
   if (cellSize <= 0 || !Number.isFinite(offset)) {

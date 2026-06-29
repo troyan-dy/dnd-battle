@@ -47,7 +47,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Reconnect test: reload a player link mid-encounter, state restores
 
 ## Phase 5 — Combat actions (visible to all)
-- [ ] Move token with grid snapping + distance measurement (feet)
+- [x] Move token with grid snapping + distance measurement (feet)
 - [ ] Marks / pings on the board (temporary, visible to everyone)
 - [ ] Initiative tracker + turn order; "end turn" advances it
 - [ ] Apply damage/healing to a token; HP updates broadcast live
