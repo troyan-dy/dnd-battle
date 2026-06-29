@@ -32,7 +32,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Board viewport syncs nothing yet — purely local rendering
 
 ## Phase 3 — Characters & tokens
-- [ ] Character config UI (host): name, portrait, stats, max HP
+- [x] Character config UI (host): name, portrait, stats, max HP
 - [ ] Place tokens on the grid; bind each token to a character
 - [ ] Player view: opening a player link shows board + only their character panel
 - [ ] Token rendering: name, HP bar, current conditions

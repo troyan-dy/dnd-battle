@@ -195,6 +195,126 @@ async def test_add_player_mints_link_bound_to_character(
 
 
 @pytest.mark.asyncio
+async def test_add_player_persists_ability_scores_and_portrait(
+    client_and_factory: ClientFactory,
+) -> None:
+    """Ability scores + portrait URL from the config form are stored on the character."""
+    client, factory = client_and_factory
+    room_id = await _create_room(client)
+
+    resp = await client.post(
+        f"/rooms/{room_id}/participants",
+        json={
+            "character_name": "Aria",
+            "max_hp": 24,
+            "ability_scores": {
+                "strength": 16,
+                "dexterity": 14,
+                "constitution": 13,
+                "intelligence": 12,
+                "wisdom": 10,
+                "charisma": 8,
+            },
+            "portrait_url": "https://cdn.example.com/aria.png",
+        },
+    )
+    assert resp.status_code == 201
+
+    async with factory() as session:
+        character = (await session.execute(select(Character))).scalars().one()
+        assert character.ability_scores == {
+            "strength": 16,
+            "dexterity": 14,
+            "constitution": 13,
+            "intelligence": 12,
+            "wisdom": 10,
+            "charisma": 8,
+        }
+        assert character.portrait_url == "https://cdn.example.com/aria.png"
+
+
+@pytest.mark.asyncio
+async def test_add_player_defaults_ability_scores_to_ten(
+    client_and_factory: ClientFactory,
+) -> None:
+    """Omitting ability scores / portrait keeps the legacy contract: all scores 10, no portrait."""
+    client, factory = client_and_factory
+    room_id = await _create_room(client)
+
+    resp = await client.post(
+        f"/rooms/{room_id}/participants",
+        json={"character_name": "Aria", "max_hp": 10},
+    )
+    assert resp.status_code == 201
+
+    async with factory() as session:
+        character = (await session.execute(select(Character))).scalars().one()
+        assert character.ability_scores == {
+            "strength": 10,
+            "dexterity": 10,
+            "constitution": 10,
+            "intelligence": 10,
+            "wisdom": 10,
+            "charisma": 10,
+        }
+        assert character.portrait_url is None
+
+
+@pytest.mark.asyncio
+async def test_add_player_rejects_out_of_range_ability_score(
+    client_and_factory: ClientFactory,
+) -> None:
+    """An ability score above 30 fails validation with 422."""
+    client, _ = client_and_factory
+    room_id = await _create_room(client)
+    resp = await client.post(
+        f"/rooms/{room_id}/participants",
+        json={
+            "character_name": "Aria",
+            "max_hp": 10,
+            "ability_scores": {"strength": 31},
+        },
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_add_player_rejects_non_http_portrait_url(
+    client_and_factory: ClientFactory,
+) -> None:
+    """A portrait_url without an http(s) scheme is rejected (422)."""
+    client, _ = client_and_factory
+    room_id = await _create_room(client)
+    resp = await client.post(
+        f"/rooms/{room_id}/participants",
+        json={
+            "character_name": "Aria",
+            "max_hp": 10,
+            "portrait_url": "javascript:alert(1)",
+        },
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_add_player_blank_portrait_url_becomes_null(
+    client_and_factory: ClientFactory,
+) -> None:
+    """A blank portrait_url is normalized to NULL rather than stored verbatim."""
+    client, factory = client_and_factory
+    room_id = await _create_room(client)
+    resp = await client.post(
+        f"/rooms/{room_id}/participants",
+        json={"character_name": "Aria", "max_hp": 10, "portrait_url": "   "},
+    )
+    assert resp.status_code == 201
+
+    async with factory() as session:
+        character = (await session.execute(select(Character))).scalars().one()
+        assert character.portrait_url is None
+
+
+@pytest.mark.asyncio
 async def test_add_player_mints_unique_tokens(
     client_and_factory: ClientFactory,
 ) -> None:

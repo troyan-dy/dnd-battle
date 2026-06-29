@@ -30,6 +30,9 @@ class Character(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     max_hp: Mapped[int] = mapped_column(Integer, nullable=False)
     current_hp: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Optional portrait image URL (DM-provided). A full upload pipeline can replace
+    # this later; a plain URL keeps the value reconnect-safe and storage-free.
+    portrait_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     # Ability scores keyed by short name (str/dex/...); defaulted by rules layer.
     ability_scores: Mapped[dict[str, Any]] = mapped_column(SAJSON, default=dict, nullable=False)
     # Active condition names (2024 list); effects live in the rules engine.

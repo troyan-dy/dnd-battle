@@ -9,9 +9,32 @@ from __future__ import annotations
 
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import ParticipantRole, RoomStatus
+
+# D&D 2024 ability scores range 1..30 (PHB caps player scores at 20, but monsters
+# and magic items can push to 30). 10 is the unmodified human average.
+ABILITY_SCORE_MIN = 1
+ABILITY_SCORE_MAX = 30
+ABILITY_SCORE_DEFAULT = 10
+
+
+class AbilityScores(BaseModel):
+    """The six D&D 2024 ability scores. Each defaults to the average (10)."""
+
+    strength: int = Field(default=ABILITY_SCORE_DEFAULT, ge=ABILITY_SCORE_MIN, le=ABILITY_SCORE_MAX)
+    dexterity: int = Field(
+        default=ABILITY_SCORE_DEFAULT, ge=ABILITY_SCORE_MIN, le=ABILITY_SCORE_MAX
+    )
+    constitution: int = Field(
+        default=ABILITY_SCORE_DEFAULT, ge=ABILITY_SCORE_MIN, le=ABILITY_SCORE_MAX
+    )
+    intelligence: int = Field(
+        default=ABILITY_SCORE_DEFAULT, ge=ABILITY_SCORE_MIN, le=ABILITY_SCORE_MAX
+    )
+    wisdom: int = Field(default=ABILITY_SCORE_DEFAULT, ge=ABILITY_SCORE_MIN, le=ABILITY_SCORE_MAX)
+    charisma: int = Field(default=ABILITY_SCORE_DEFAULT, ge=ABILITY_SCORE_MIN, le=ABILITY_SCORE_MAX)
 
 
 class CreateRoomRequest(BaseModel):
@@ -60,11 +83,33 @@ class AddPlayerRequest(BaseModel):
         description="Name of the character slot the player will control.",
     )
     max_hp: int = Field(gt=0, le=1000, description="The character's maximum hit points.")
+    ability_scores: AbilityScores = Field(
+        default_factory=AbilityScores,
+        description="The six D&D 2024 ability scores; each defaults to 10 if omitted.",
+    )
+    portrait_url: str | None = Field(
+        default=None,
+        max_length=2048,
+        description="Optional http(s) URL of a portrait image for the character.",
+    )
     display_name: str | None = Field(
         default=None,
         max_length=120,
         description="Optional friendly name shown for the player.",
     )
+
+    @field_validator("portrait_url")
+    @classmethod
+    def _validate_portrait_url(cls, value: str | None) -> str | None:
+        """Normalize empty/blank to None; require an http(s) scheme when present."""
+        if value is None:
+            return None
+        trimmed = value.strip()
+        if not trimmed:
+            return None
+        if not (trimmed.startswith("http://") or trimmed.startswith("https://")):
+            raise ValueError("portrait_url must be an http:// or https:// URL.")
+        return trimmed
 
 
 class AddPlayerResponse(BaseModel):

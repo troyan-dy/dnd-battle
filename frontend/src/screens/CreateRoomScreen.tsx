@@ -69,10 +69,10 @@ export default function CreateRoomScreen() {
           </button>
         </div>
         <p className="hint">
-          This link is shown only once — keep it safe. Add players from the room once you open it.
+          This link is shown only once — keep it safe. Configure characters and invite players next.
         </p>
         <p>
-          <a href={host_link.url}>Open the room &rarr;</a>
+          <a href={`/rooms/${room.id}/characters`}>Configure characters &rarr;</a>
         </p>
       </main>
     );

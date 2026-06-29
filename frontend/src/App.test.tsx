@@ -21,4 +21,9 @@ describe('App routing', () => {
     render(<App pathname="/join/abc123" />);
     expect(screen.getByRole('status')).toHaveTextContent(/resolving your invite/i);
   });
+
+  it('renders the character-config screen on a "/rooms/:roomId/characters" path', () => {
+    render(<App pathname="/rooms/room-1/characters" />);
+    expect(screen.getByRole('heading', { name: /configure a character/i })).toBeInTheDocument();
+  });
 });

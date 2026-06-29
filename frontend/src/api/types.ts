@@ -29,6 +29,34 @@ export interface CreateRoomResponse {
   host_link: InviteLink;
 }
 
+/** The six D&D 2024 ability scores. Each is an integer 1–30 (10 = average). */
+export interface AbilityScores {
+  strength: number;
+  dexterity: number;
+  constitution: number;
+  intelligence: number;
+  wisdom: number;
+  charisma: number;
+}
+
+/** Host request to add a player + their character slot to a room. */
+export interface AddPlayerRequest {
+  character_name: string;
+  max_hp: number;
+  ability_scores?: AbilityScores;
+  /** Optional http(s) portrait image URL. */
+  portrait_url?: string | null;
+  display_name?: string | null;
+}
+
+/** Result of adding a player: their participant/character ids and invite link. */
+export interface AddPlayerResponse {
+  participant_id: string;
+  character_id: string;
+  role: ParticipantRole;
+  invite_link: InviteLink;
+}
+
 export interface ResolveInviteResponse {
   room_id: string;
   participant_id: string;

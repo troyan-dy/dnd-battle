@@ -119,6 +119,8 @@ async def add_player(
         name=payload.character_name,
         max_hp=payload.max_hp,
         current_hp=payload.max_hp,
+        ability_scores=payload.ability_scores.model_dump(),
+        portrait_url=payload.portrait_url,
     )
     session.add(character)
     await session.flush()  # assign character.id

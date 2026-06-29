@@ -14,3 +14,16 @@ export function parseInviteToken(pathname: string): string | null {
   }
   return decodeURIComponent(match[1]);
 }
+
+/**
+ * Parse a host "/rooms/:roomId/characters" path into its room id, or null for any
+ * other path. This is where the DM configures characters (name, stats, portrait,
+ * max HP) and hands out per-player invite links.
+ */
+export function parseRoomCharactersRoomId(pathname: string): string | null {
+  const match = /^\/rooms\/([^/]+)\/characters\/?$/.exec(pathname);
+  if (!match) {
+    return null;
+  }
+  return decodeURIComponent(match[1]);
+}

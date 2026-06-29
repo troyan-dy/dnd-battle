@@ -4,7 +4,13 @@
 // renders what the server returns. Base URL is configurable so the SPA can talk
 // to a backend on a different origin/port in dev or prod.
 
-import type { CreateRoomRequest, CreateRoomResponse, ResolveInviteResponse } from './types';
+import type {
+  AddPlayerRequest,
+  AddPlayerResponse,
+  CreateRoomRequest,
+  CreateRoomResponse,
+  ResolveInviteResponse,
+} from './types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(
   /\/+$/,
@@ -60,6 +66,19 @@ async function extractDetail(response: Response): Promise<string> {
 /** Host action: create a room and receive the host invite link. */
 export function createRoom(payload: CreateRoomRequest): Promise<CreateRoomResponse> {
   return request<CreateRoomResponse>('/rooms', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Host action: configure a character in a room and mint that player's invite link.
+ *
+ * The server creates the character slot (name, max HP, ability scores, portrait),
+ * a player participant bound to it, and a fresh invite link returned exactly once.
+ */
+export function addPlayer(roomId: string, payload: AddPlayerRequest): Promise<AddPlayerResponse> {
+  return request<AddPlayerResponse>('/rooms/' + encodeURIComponent(roomId) + '/participants', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
