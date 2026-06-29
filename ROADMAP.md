@@ -1,93 +1,79 @@
 # ROADMAP.md — D&D Battler
 
-> Источник правды о том, ЧТО делать дальше. Агенты берут первую неотмеченную задачу,
-> у которой выполнены зависимости. Ставь `[x]` по достижении DONE (см. Definition of Done в CLAUDE.md).
-> Новые идеи добавляй в `## Бэклог` внизу; хост поднимает их в фазы.
+> Source of truth for WHAT to do next. Agents pick the first unchecked task whose
+> dependencies are done. Tick `[x]` when DONE (see Definition of Done in CLAUDE.md).
+> Add new ideas to `## Backlog` at the bottom; the host promotes them into phases.
 
-Легенда: `[ ]` todo · `[~]` в работе · `[x]` готово · `[!]` заблокировано (см. STATE.md)
-
-> 🌍 **Язык по умолчанию — русский (`ru`).** Интерфейс продукта, тексты, термины D&D 2024 —
-> на русском. Любая задача с пользовательским текстом считается выполненной только если
-> строки идут через i18n и есть русский перевод (см. Фазу L и словарь домена в CLAUDE.md).
+Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STATE.md)
 
 ---
 
-## Фаза 0 — Фундамент
-- [x] Каркас монорепо: `/backend` (FastAPI) и `/frontend` (Vite+React+TS)
-- [x] Backend: проект на uv, приложение FastAPI, эндпоинт `/health`, скрипт запуска uvicorn
-- [x] Backend: подключены pytest + pytest-asyncio, один проходящий smoke-тест
-- [ ] Frontend: Vite-приложение стартует, подключён Vitest, один проходящий smoke-тест
-- [ ] Docker-compose для Postgres (+ опционально Redis); `.env.example`
-- [ ] Линт/формат: ruff + mypy (backend), eslint + prettier (frontend)
-- [ ] CI-скрипт, запускающий линт + тесты для обоих пакетов
+## Phase 0 — Foundation
+- [ ] Scaffold monorepo: `/backend` (FastAPI) and `/frontend` (Vite+React+TS)
+- [ ] Backend: uv project, FastAPI app, `/health` endpoint, uvicorn run script
+- [ ] Backend: pytest + pytest-asyncio wired, one passing smoke test
+- [ ] Frontend: Vite app boots, Vitest wired, one passing smoke test
+- [ ] Docker-compose for Postgres (+ optional Redis); `.env.example`
+- [ ] Lint/format: ruff + mypy (backend), eslint + prettier (frontend)
+- [ ] CI script that runs lint + tests for both packages
 
-## Фаза L — Локализация и i18n (сквозная)
-- [ ] Frontend: подключить i18n-движок (например `i18next` + `react-i18next`), дефолтная локаль `ru`
-- [ ] Структура переводов: `frontend/src/locales/ru/*.json` как источник правды, задел под `en`
-- [ ] Правило: никаких хардкод-строк в UI — только ключи перевода (добавить в линт/ревью-чеклист)
-- [ ] Backend: пользовательские сообщения/ошибки локализуемы (коды + перевод на клиенте)
-- [ ] Перевести термины D&D 2024 на русский по словарю домена из CLAUDE.md
-- [ ] Форматы локали: числа, расстояния (футы → «фт»), даты под `ru-RU`
-- [ ] Smoke-тест i18n: ключи не теряются, есть фолбэк, нет пропущенных переводов
+## Phase 1 — Rooms & invite links
+- [ ] Data model: Room, Participant, InviteLink, Character (SQLAlchemy + Alembic)
+- [ ] API: create room (host) → returns room id + host link
+- [ ] API: generate per-participant unique invite links bound to a character slot
+- [ ] API: resolve invite link → `{ roomId, participantId, role, characterId }`
+- [ ] Link security: unguessable tokens, single-purpose, revocable
+- [ ] Frontend: host "create room" screen; join screen via link
 
-## Фаза 1 — Комнаты и инвайт-ссылки
-- [ ] Модель данных: Room, Participant, InviteLink, Character (SQLAlchemy + Alembic)
-- [ ] API: создать комнату (host) → возвращает id комнаты + ссылку хоста
-- [ ] API: генерировать уникальные инвайт-ссылки на участника, привязанные к слоту персонажа
-- [ ] API: резолвить инвайт-ссылку → `{ roomId, participantId, role, characterId }`
-- [ ] Безопасность ссылок: неугадываемые токены, одноразовое назначение, отзываемость
-- [ ] Frontend: экран «создать комнату» для хоста; экран входа по ссылке (на русском)
+## Phase 2 — Map & board rendering
+- [ ] API: host uploads a map image; stored + served
+- [ ] Frontend: render map on a Konva stage; pan + zoom
+- [ ] Grid overlay (square grid first), configurable cell size + offset
+- [ ] Board viewport syncs nothing yet — purely local rendering
 
-## Фаза 2 — Карта и отрисовка доски
-- [ ] API: хост загружает изображение карты; хранится + отдаётся
-- [ ] Frontend: отрисовка карты на сцене Konva; пан + зум
-- [ ] Сетка-оверлей (сначала квадратная), настраиваемый размер ячейки + смещение
-- [ ] Вьюпорт доски пока ничего не синхронизирует — чисто локальная отрисовка
+## Phase 3 — Characters & tokens
+- [ ] Character config UI (host): name, portrait, stats, max HP
+- [ ] Place tokens on the grid; bind each token to a character
+- [ ] Player view: opening a player link shows board + only their character panel
+- [ ] Token rendering: name, HP bar, current conditions
 
-## Фаза 3 — Персонажи и жетоны
-- [ ] UI настройки персонажа (host): имя, портрет, характеристики, макс. HP
-- [ ] Размещение жетонов на сетке; привязка каждого жетона к персонажу
-- [ ] Вид игрока: открытие игроцкой ссылки показывает доску + только его панель персонажа
-- [ ] Отрисовка жетона: имя, полоса HP, текущие состояния
+## Phase 4 — Realtime sync (the core)
+- [ ] python-socketio mounted on FastAPI; client connects via socket.io-client
+- [ ] Join room → server sends FULL current BoardState (reconnect-safe)
+- [ ] Action protocol (Pydantic): move, mark, damage, endTurn… defined + versioned
+- [ ] Server validates intents (permissions + bounds) before broadcasting
+- [ ] Broadcast resulting Action to all participants in the room
+- [ ] Optimistic move on client + reconcile to server broadcast
+- [ ] Reconnect test: reload a player link mid-encounter, state restores
 
-## Фаза 4 — Realtime-синхронизация (ядро)
-- [ ] python-socketio смонтирован на FastAPI; клиент подключается через socket.io-client
-- [ ] Вход в комнату → сервер отдаёт ПОЛНЫЙ текущий BoardState (устойчиво к реконнекту)
-- [ ] Протокол Action (Pydantic): move, mark, damage, endTurn… определён + версионирован
-- [ ] Сервер валидирует интенты (права + границы) перед бродкастом
-- [ ] Бродкаст результирующего Action всем участникам комнаты
-- [ ] Оптимистичный move на клиенте + сверка с бродкастом сервера
-- [ ] Тест реконнекта: перезагрузка игроцкой ссылки в бою — состояние восстанавливается
+## Phase 5 — Combat actions (visible to all)
+- [ ] Move token with grid snapping + distance measurement (feet)
+- [ ] Marks / pings on the board (temporary, visible to everyone)
+- [ ] Initiative tracker + turn order; "end turn" advances it
+- [ ] Apply damage/healing to a token; HP updates broadcast live
+- [ ] Basic attack flow: choose target → roll → apply result, all see the log
+- [ ] Shared combat log panel
 
-## Фаза 5 — Боевые действия (видны всем)
-- [ ] Перемещение жетона со снапом к сетке + измерение дистанции (в футах)
-- [ ] Метки / пинги на доске (временные, видны всем)
-- [ ] Трекер инициативы + порядок ходов; «завершить ход» продвигает его
-- [ ] Применение урона/лечения к жетону; HP обновляется бродкастом в реальном времени
-- [ ] Базовый флоу атаки: выбор цели → бросок → применение результата, лог видят все
-- [ ] Общая панель боевого лога
+## Phase 6 — D&D 2024 rules engine
+- [ ] Isolated rules module (pure functions, fully unit-tested)
+- [ ] Ability scores, modifiers, proficiency bonus
+- [ ] Attack roll vs AC; advantage/disadvantage
+- [ ] Damage rolls + types; basic resistances
+- [ ] Conditions (2024 list) with their mechanical effects
+- [ ] Wire rules engine into the attack/damage actions from Phase 5
 
-## Фаза 6 — Движок правил D&D 2024
-- [ ] Изолированный модуль правил (чистые функции, полностью покрыт юнит-тестами)
-- [ ] Характеристики, модификаторы, бонус мастерства
-- [ ] Бросок атаки против КЗ (AC); преимущество/помеха
-- [ ] Броски урона + типы; базовые сопротивления
-- [ ] Состояния (список 2024) с их механическими эффектами
-- [ ] Подключить движок правил к действиям атаки/урона из Фазы 5
-
-## Фаза 7 — Права, персистентность, полировка
-- [ ] Серверная проверка прав: игрок действует только своим жетоном; хост может всё
-- [ ] Персистить комнату + снапшоты доски, чтобы сессия пережила рестарт сервера
-- [ ] Туман войны / скрытые жетоны под управлением хоста
-- [ ] Обработка ошибок + сообщения пользователю при десинке/дисконнекте (на русском)
-- [ ] e2e Playwright: два браузер-клиента, один двигает → другой видит
+## Phase 7 — Permissions, persistence, polish
+- [ ] Server-enforced permissions: player acts only on own token; host can do all
+- [ ] Persist room + board snapshots so a session survives a server restart
+- [ ] Fog of war / hidden tokens controllable by host
+- [ ] Error handling + user-facing messages on desync/disconnect
+- [ ] e2e Playwright: two browser clients, one moves → other sees it
 
 ---
 
-## Бэклог (хост поднимает в фазы)
-- [ ] Бросалка кубиков с общими результатами
-- [ ] Опция гекс-сетки
-- [ ] Шаблоны областей заклинаний (конус/сфера/линия)
-- [ ] Мобильное/тач-управление
-- [ ] Грейс-период реконнекта + роль зрителя
-- [ ] Английская локаль (`en`) как вторая поддерживаемая после стабилизации `ru`
+## Backlog (host promotes into phases)
+- [ ] Dice roller with shared results
+- [ ] Hex grid option
+- [ ] Spell area templates (cone/sphere/line)
+- [ ] Mobile/touch controls
+- [ ] Reconnect grace + spectator role

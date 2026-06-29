@@ -3,13 +3,6 @@
 > Этот файл читают ВСЕ агенты. Здесь живёт «правда» о проекте.
 > ⚠️ Поправь раздел STACK под себя — остальное менять не обязательно.
 
-> 🇷🇺 **Проект для русскоязычных разработчиков и пользователей.**
-> - Язык продукта по умолчанию — **русский (`ru`)**; весь пользовательский текст идёт через i18n.
-> - Документация и журналы (`README.md`, `ROADMAP.md`, `STATE.md`) ведутся на русском.
-> - Имена сущностей в КОДЕ остаются английскими (`Room`, `Token`, `Action`…) — единый
->   технический словарь; русские названия из словаря домена ниже — для UI и общения.
-> - Термины D&D 2024 в интерфейсе — по-русски (см. «Словарь домена» ниже).
-
 ## What we are building
 
 An online D&D combat tool ("battler") — a real-time, multiplayer virtual
@@ -42,9 +35,6 @@ Backend is fixed (Python + FastAPI). Frontend is an assumed default — change f
 - Frontend tests: **Vitest** (unit) + **Playwright** (e2e for multi-client sync)
 - Data contracts: **Pydantic** models on the server are the source of truth for
   Action/BoardState shapes; mirror them in TS types on the client.
-- Localization (i18n): **i18next + react-i18next** on the frontend, default locale **`ru`**,
-  переводы в `frontend/src/locales/ru/*.json` (источник правды). Никаких хардкод-строк в UI.
-  Сообщения/ошибки сервера локализуемы (стабильные коды + перевод на клиенте).
 
 ## Core domain model (shared vocabulary — use these names in code)
 
@@ -55,31 +45,6 @@ Backend is fixed (Python + FastAPI). Frontend is an assumed default — change f
 - **Token**: the on-board piece for a character. Has `{ x, y }` grid coords, size.
 - **BoardState**: authoritative state — tokens, marks, initiative/turn order, fog.
 - **Action**: a broadcast event — `move`, `attack`, `mark`, `damage`, `endTurn`, etc.
-
-## Словарь домена (RU ↔ код) — единые переводы для UI и общения
-
-> В коде — английское имя слева. В интерфейсе и в обсуждениях — русское справа.
-> Любой новый пользовательский термин сначала добавляй сюда, потом переводи в `locales/ru`.
-
-Сущности:
-- `Room` — **Комната** (сессия-столкновение)
-- `InviteLink` — **Инвайт-ссылка** (уникальная ссылка-приглашение)
-- `Participant` — **Участник** (роли: `host` — **Ведущий/Мастер**, `player` — **Игрок**)
-- `Character` — **Персонаж**
-- `Token` — **Жетон** (фишка персонажа на доске)
-- `BoardState` — **Состояние доски**
-- `Action` — **Действие** (бродкаст-событие)
-- `map` — **Карта**, `grid` — **Сетка**, `board` — **Доска**, `fog of war` — **Туман войны**
-
-Боевые термины D&D 2024:
-- `HP (hit points)` — **Хиты / Очки здоровья**
-- `AC (armor class)` — **КЗ (класс защиты)**
-- `initiative` — **Инициатива**, `turn order` — **Порядок ходов**, `end turn` — **Завершить ход**
-- `attack roll` — **Бросок атаки**, `damage` — **Урон**, `healing` — **Лечение**
-- `advantage / disadvantage` — **Преимущество / Помеха**
-- `ability score` — **Характеристика**, `modifier` — **Модификатор**, `proficiency bonus` — **Бонус мастерства**
-- `condition` — **Состояние**, `resistance` — **Сопротивление**
-- `mark / ping` — **Метка / Пинг**, `distance (feet)` — **Дистанция (футы, «фт»)**
 
 ## Architecture rules (guardrails for all agents)
 
@@ -94,18 +59,13 @@ Backend is fixed (Python + FastAPI). Frontend is an assumed default — change f
    transport or UI layers.
 5. **Optimistic UI is allowed but reconciled.** The server's broadcast is the
    source of truth; clients roll back on mismatch.
-6. **Локализация обязательна.** Любой пользовательский текст — только через i18n-ключи,
-   дефолтная локаль `ru`. Никаких хардкод-строк в UI/сообщениях. Термины D&D 2024 берём
-   из «Словаря домена». Это часть Definition of Done.
 
 ## Working agreements (how the agent loop operates)
 
 - `ROADMAP.md` is the single source of truth for WHAT to do next.
 - `STATE.md` is the handoff log: what just happened, what's next, any blockers.
 - **Definition of Done** for any task: code compiles, lint passes, relevant tests
-  added and green, `ROADMAP.md` checkbox ticked, `STATE.md` updated. Если задача
-  добавляет пользовательский текст — строки идут через i18n и есть русский перевод (`ru`).
-- Документы и записи в `STATE.md`/`ROADMAP.md` ведём на русском.
+  added and green, `ROADMAP.md` checkbox ticked, `STATE.md` updated.
 - Small, reviewable commits. One task = one logical commit.
 - If a task is ambiguous or risky (auth, data loss, money), STOP and write a
   question into `STATE.md` under "NEEDS HUMAN" instead of guessing.
