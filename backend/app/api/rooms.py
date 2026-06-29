@@ -38,15 +38,18 @@ from app.schemas.room import (
     CharacterResponse,
     CreateRoomRequest,
     CreateRoomResponse,
+    InitiativeState,
     InviteLinkResponse,
     MapResponse,
     PlaceTokenRequest,
     RevokeLinksResponse,
     RoomSummary,
+    SetInitiativeRequest,
     TokenResponse,
     UpdateTokenRequest,
 )
 from app.security.tokens import generate_token, hash_token
+from app.services.initiative import build_initiative_state, set_initiative
 from app.storage.maps import map_image_path, save_map_image
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
@@ -439,3 +442,56 @@ async def update_token(
     await session.refresh(token)
 
     return TokenResponse.model_validate(token)
+
+
+@router.put("/{room_id}/initiative", response_model=InitiativeState)
+async def put_initiative(
+    room_id: uuid.UUID,
+    payload: SetInitiativeRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> InitiativeState:
+    """Host action: (re)build the room's initiative / turn order.
+
+    Replaces any existing order. The combatants are sorted by initiative descending
+    (ties stable by the order given), the active turn resets to the first seat and
+    the round to 1. An empty ``entries`` list clears the tracker. Same established
+    host-action pattern (no auth gate yet) as token placement.
+
+    Each entry may bind a ``character_id`` (which must belong to this room → 422) or
+    leave it ``None`` for an NPC/monster combatant. Returns 404 if the room is
+    unknown. The realtime ``endTurn`` action then advances this order live.
+    """
+    room = await session.get(Room, room_id)
+    if room is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found.")
+
+    for entry in payload.entries:
+        if entry.character_id is None:
+            continue
+        character = await session.get(Character, entry.character_id)
+        if character is None or character.room_id != room_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Initiative entry references a character not in this room.",
+            )
+
+    state = await set_initiative(session, room=room, entries=payload.entries)
+    await session.commit()
+    return state
+
+
+@router.get("/{room_id}/initiative", response_model=InitiativeState)
+async def get_initiative(
+    room_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> InitiativeState:
+    """Read the room's current initiative order (reconnect-safe idempotent read).
+
+    Returns 404 if the room is unknown. The same snapshot is also embedded in the
+    realtime ``boardState`` push on (re)join.
+    """
+    room = await session.get(Room, room_id)
+    if room is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found.")
+
+    return await build_initiative_state(session, room_id)

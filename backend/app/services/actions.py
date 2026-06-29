@@ -17,9 +17,10 @@ What is validated WHERE:
   - the referenced token actually exists and belongs to the *actor's* room;
   - a ``player`` may only target a token bound to their OWN character; a ``host``
     may target any token in the room (CLAUDE.md rule 3);
-  - ``mark`` / ``endTurn`` carry no token, so any authenticated participant in the
-    room may issue them (whose-turn enforcement arrives with the Phase 5 initiative
-    tracker).
+  - ``mark`` carries no token, so any authenticated participant in the room may
+    issue it (a transient ping);
+  - ``endTurn`` is gated by whose turn it is: the host may always advance the
+    order, a player only when their own combatant is active (Phase 5 initiative).
 
 On rejection a :class:`IntentValidationError` carrying a human-readable reason is
 raised; the transport layer (the next Phase 4 task) maps it to an error ack and
@@ -40,19 +41,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.character import Character
 from app.models.enums import ParticipantRole
+from app.models.room import Room
 from app.models.token import Token
 from app.schemas.action import (
     ActionIntent,
     ActionPayload,
     DamagePayload,
+    EndTurnPayload,
     MovePayload,
 )
+from app.services.initiative import active_character_id, advance_turn
 
 # Uniform rejection messages. Kept generic so a player cannot probe the board for
 # tokens they do not own (the "not on this board" vs "not yours" distinction is
 # intentionally coarse to avoid leaking which tokens exist).
 _TOKEN_NOT_ON_BOARD = "Target token is not on this board."
 _TOKEN_NOT_OWNED = "You can only act on your own token."
+# Whose-turn enforcement for `endTurn` (the turn order is public in BoardState, so
+# these messages leak nothing a participant cannot already see in the tracker).
+_COMBAT_NOT_STARTED = "Combat has not started."
+_NOT_YOUR_TURN = "It is not your turn."
 
 
 class IntentValidationError(Exception):
@@ -81,7 +89,7 @@ async def validate_intent(
     payload = intent.payload
 
     # Token-targeting actions must reference a token in the actor's room that the
-    # actor is permitted to act on. Non-token actions (mark, endTurn) need neither.
+    # actor is permitted to act on.
     if isinstance(payload, (MovePayload, DamagePayload)):
         await _authorize_token_target(
             session,
@@ -90,6 +98,11 @@ async def validate_intent(
             character_id=character_id,
             token_id=payload.token_id,
         )
+    # Ending a turn is gated by whose turn it is: the host may always advance the
+    # order; a player may only end the turn of their OWN active combatant.
+    elif isinstance(payload, EndTurnPayload):
+        await _authorize_end_turn(session, room_id=room_id, role=role, character_id=character_id)
+    # `mark` carries no token and is allowed for any room participant (a ping).
 
     return payload
 
@@ -119,6 +132,30 @@ async def _authorize_token_target(
         raise IntentValidationError(_TOKEN_NOT_OWNED)
 
 
+async def _authorize_end_turn(
+    session: AsyncSession,
+    *,
+    room_id: uuid.UUID,
+    role: ParticipantRole,
+    character_id: uuid.UUID | None,
+) -> None:
+    """Ensure the actor may end the current turn (CLAUDE.md rule 3).
+
+    The host may always advance the order. A player may end the turn only when it
+    is currently their OWN combatant's turn. Raises :class:`IntentValidationError`
+    otherwise.
+    """
+    if role == ParticipantRole.host:
+        return
+
+    room = await session.get(Room, room_id)
+    if room is None or room.initiative_active_index is None:
+        raise IntentValidationError(_COMBAT_NOT_STARTED)
+
+    if character_id is None or await active_character_id(session, room) != character_id:
+        raise IntentValidationError(_NOT_YOUR_TURN)
+
+
 async def apply_action(
     session: AsyncSession,
     *,
@@ -133,10 +170,10 @@ async def apply_action(
     authoritative: a client that reloads its link mid-encounter rebuilds the
     post-action board (reconnect-safe, CLAUDE.md rule 2). The caller commits.
 
-    * ``move``   -> update the token's grid coordinates.
-    * ``damage`` -> reduce the bound character's current HP, clamped at 0.
-    * ``mark`` / ``endTurn`` carry no durable board state (a mark is transient;
-      turn order arrives with the Phase 5 initiative tracker) -> no row change.
+    * ``move``    -> update the token's grid coordinates.
+    * ``damage``  -> reduce the bound character's current HP, clamped at 0.
+    * ``endTurn`` -> advance the room's initiative pointer to the next combatant.
+    * ``mark``    -> transient ping, carries no durable board state -> no row change.
 
     The ``None`` guards are defensive: validation already proved the token (and
     thus its character) exists in ``room_id``.
@@ -152,3 +189,7 @@ async def apply_action(
             character = await session.get(Character, token.character_id)
             if character is not None:
                 character.current_hp = max(0, character.current_hp - payload.amount)
+    elif isinstance(payload, EndTurnPayload):
+        room = await session.get(Room, room_id)
+        if room is not None:
+            await advance_turn(session, room=room)

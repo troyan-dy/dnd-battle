@@ -24,12 +24,14 @@ import { Image as KonvaImage, Layer, Stage } from 'react-konva';
 import type Konva from 'konva';
 import type { Socket } from 'socket.io-client';
 import { listCharacters, listTokens, mapImageUrl } from '../api/client';
-import type { CharacterResponse, TokenResponse } from '../api/types';
+import type { CharacterResponse, InitiativeState, TokenResponse } from '../api/types';
 import { createBoardSocket, emitAction } from '../realtime/connection';
 import GridLayer from './GridLayer';
 import { DEFAULT_GRID, MIN_CELL_SIZE, type GridConfig } from './grid';
 import TokenLayer from './TokenLayer';
 import MarkLayer from './MarkLayer';
+import InitiativeTracker from './InitiativeTracker';
+import { advanceInitiative, EMPTY_INITIATIVE } from './initiative';
 import { addMark, markFromAction, pruneExpired, type BoardMark } from './marks';
 import { joinTokens, worldToCell } from './tokens';
 import {
@@ -103,6 +105,7 @@ export default function MapBoard({
   const [board, setBoard] = useState<ReconcilableBoard>(EMPTY_BOARD);
   const [characters, setCharacters] = useState<CharacterResponse[]>([]);
   const [marks, setMarks] = useState<BoardMark[]>([]);
+  const [initiative, setInitiative] = useState<InitiativeState>(EMPTY_INITIATIVE);
   const [pingMode, setPingMode] = useState(false);
   const socketRef = useRef<Socket | null>(null);
 
@@ -139,6 +142,7 @@ export default function MapBoard({
       onBoardState: (state) => {
         setCharacters(state.characters);
         setBoard(fromBoardState(state));
+        setInitiative(state.initiative);
       },
       onAction: (action) => {
         if (action.payload.type === 'mark') {
@@ -147,6 +151,12 @@ export default function MapBoard({
           if (mark) {
             setMarks((m) => addMark(pruneExpired(m, now), mark));
           }
+          return;
+        }
+        if (action.payload.type === 'endTurn') {
+          // The server broadcasts only the intent; advance the local pointer the
+          // same way it does. The next boardState push reconciles any drift.
+          setInitiative((i) => advanceInitiative(i));
           return;
         }
         setBoard((b) => applyAction(b, action));
@@ -216,6 +226,17 @@ export default function MapBoard({
     [pingMode, viewport, grid],
   );
 
+  // End the current turn: emit the intent and let the server's broadcast advance
+  // the order for everyone (including us, via onAction above). The server enforces
+  // whose turn it is; the tracker button is only enabled when we are allowed.
+  const handleEndTurn = useCallback(() => {
+    const socket = socketRef.current;
+    if (!socket) {
+      return;
+    }
+    void emitAction(socket, { type: 'endTurn' });
+  }, []);
+
   const tokens = joinTokens(displayTokens(board), characters);
 
   // Frame the map to fit once it (and the container) are known.
@@ -284,6 +305,12 @@ export default function MapBoard({
           </Layer>
         </Stage>
       )}
+      <InitiativeTracker
+        state={initiative}
+        isHost={isHost}
+        controllableCharacterId={controllableCharacterId}
+        onEndTurn={handleEndTurn}
+      />
       {status === 'loaded' && image && (
         <div className="map-board__grid-controls">
           <button

@@ -634,3 +634,118 @@ async def test_list_characters_unknown_room_returns_404(
     missing = "00000000-0000-0000-0000-000000000000"
     resp = await client.get(f"/rooms/{missing}/characters")
     assert resp.status_code == 404
+
+
+# --- initiative tracker (PUT/GET /rooms/{id}/initiative) -------------------------
+
+
+async def _add_initiative_player(client: httpx.AsyncClient, room_id: str, name: str) -> str:
+    resp = await client.post(
+        f"/rooms/{room_id}/participants",
+        json={"character_name": name, "max_hp": 10},
+    )
+    assert resp.status_code == 201
+    return str(resp.json()["character_id"])
+
+
+@pytest.mark.asyncio
+async def test_put_initiative_sorts_desc_and_sets_active(
+    client_and_factory: ClientFactory,
+) -> None:
+    """PUT initiative sorts combatants by initiative desc; active resets to seat 0."""
+    client, _ = client_and_factory
+    room_id = await _create_room(client)
+    aria = await _add_initiative_player(client, room_id, "Aria")
+
+    resp = await client.put(
+        f"/rooms/{room_id}/initiative",
+        json={
+            "entries": [
+                {"character_id": aria, "name": "Aria", "initiative": 9},
+                {"name": "Goblin", "initiative": 17},
+            ]
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [e["name"] for e in body["entries"]] == ["Goblin", "Aria"]
+    assert body["entries"][0]["character_id"] is None
+    assert body["entries"][1]["character_id"] == aria
+    assert body["active_index"] == 0
+    assert body["round"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_initiative_reads_back_order(
+    client_and_factory: ClientFactory,
+) -> None:
+    """GET returns the order set by a prior PUT (reconnect-safe idempotent read)."""
+    client, _ = client_and_factory
+    room_id = await _create_room(client)
+    await client.put(
+        f"/rooms/{room_id}/initiative",
+        json={"entries": [{"name": "Goblin", "initiative": 12}]},
+    )
+
+    resp = await client.get(f"/rooms/{room_id}/initiative")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [e["name"] for e in body["entries"]] == ["Goblin"]
+    assert body["active_index"] == 0
+
+
+@pytest.mark.asyncio
+async def test_put_initiative_empty_clears_tracker(
+    client_and_factory: ClientFactory,
+) -> None:
+    """An empty entries list clears the order and the active pointer."""
+    client, _ = client_and_factory
+    room_id = await _create_room(client)
+    await client.put(
+        f"/rooms/{room_id}/initiative",
+        json={"entries": [{"name": "Goblin", "initiative": 12}]},
+    )
+
+    resp = await client.put(f"/rooms/{room_id}/initiative", json={"entries": []})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["entries"] == []
+    assert body["active_index"] is None
+
+
+@pytest.mark.asyncio
+async def test_put_initiative_unknown_room_404(
+    client_and_factory: ClientFactory,
+) -> None:
+    client, _ = client_and_factory
+    missing = "00000000-0000-0000-0000-000000000000"
+    resp = await client.put(f"/rooms/{missing}/initiative", json={"entries": []})
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_put_initiative_foreign_character_422(
+    client_and_factory: ClientFactory,
+) -> None:
+    """Seating a character that belongs to another room is rejected (422)."""
+    client, _ = client_and_factory
+    room_id = await _create_room(client)
+    other_room = await _create_room(client, "Other")
+    foreign = await _add_initiative_player(client, other_room, "Stranger")
+
+    resp = await client.put(
+        f"/rooms/{room_id}/initiative",
+        json={"entries": [{"character_id": foreign, "name": "Stranger", "initiative": 10}]},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_get_initiative_unknown_room_404(
+    client_and_factory: ClientFactory,
+) -> None:
+    client, _ = client_and_factory
+    missing = "00000000-0000-0000-0000-000000000000"
+    resp = await client.get(f"/rooms/{missing}/initiative")
+    assert resp.status_code == 404

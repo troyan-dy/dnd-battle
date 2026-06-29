@@ -23,18 +23,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.character import Character
 from app.models.token import Token
 from app.schemas.room import BoardState, CharacterResponse, TokenResponse
+from app.services.initiative import build_initiative_state
 
 
 async def build_board_state(session: AsyncSession, room_id: uuid.UUID) -> BoardState:
-    """Assemble the full BoardState for ``room_id`` from persisted tokens + characters."""
+    """Assemble the full BoardState for ``room_id`` from persisted rows.
+
+    Joins the placed tokens, their character stat blocks, and the initiative
+    turn-order snapshot — everything a (re)joining client needs to render the board.
+    """
     tokens = (await session.execute(select(Token).where(Token.room_id == room_id))).scalars().all()
     characters = (
         (await session.execute(select(Character).where(Character.room_id == room_id)))
         .scalars()
         .all()
     )
+    initiative = await build_initiative_state(session, room_id)
     return BoardState(
         room_id=room_id,
         tokens=[TokenResponse.model_validate(t) for t in tokens],
         characters=[CharacterResponse.model_validate(c) for c in characters],
+        initiative=initiative,
     )

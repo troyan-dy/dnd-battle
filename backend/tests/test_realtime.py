@@ -25,6 +25,7 @@ from app.main import create_app
 from app.models import (
     Base,
     Character,
+    InitiativeEntry,
     InviteLink,
     Participant,
     ParticipantRole,
@@ -392,6 +393,117 @@ async def test_handle_action_host_move_broadcasts_and_persists(seeded: SeededBoa
         token = await session.get(Token, token_id)
         assert token is not None
         assert (token.x, token.y) == (7, 8)
+
+
+async def test_handle_action_player_end_turn_advances_and_broadcasts(
+    seeded: SeededBoard,
+) -> None:
+    """A player ending their own turn advances the initiative pointer + broadcasts."""
+    # Seat the player's character first, then an NPC; the player is active (seat 0).
+    async with seeded.factory() as session:
+        room = await session.get(Room, seeded.room_id)
+        assert room is not None
+        session.add_all(
+            [
+                InitiativeEntry(
+                    room_id=seeded.room_id,
+                    character_id=seeded.player_character_id,
+                    name="Aria",
+                    initiative=18,
+                    order_index=0,
+                ),
+                InitiativeEntry(
+                    room_id=seeded.room_id,
+                    character_id=None,
+                    name="Goblin",
+                    initiative=10,
+                    order_index=1,
+                ),
+            ]
+        )
+        room.initiative_active_index = 0
+        await session.commit()
+
+    sio = _fake_sio()
+    _joined(
+        sio,
+        JoinedIdentity(
+            room_id=seeded.room_id,
+            role=ParticipantRole.player,
+            participant_id=seeded.player_participant_id,
+            character_id=seeded.player_character_id,
+        ),
+    )
+
+    ack = await handle_action(
+        sio,
+        "sid1",
+        {"version": 1, "payload": {"type": "endTurn"}},
+        sequencer=RoomSequencer(),
+        session_factory=seeded.factory,
+    )
+
+    assert ack["ok"] is True
+    args, kwargs = sio.emit.await_args
+    assert args[0] == "action"
+    assert kwargs == {"room": room_name(str(seeded.room_id))}
+    assert args[1]["payload"] == {"type": "endTurn"}
+
+    # The durable pointer advanced to the next seat (reconnect-safe).
+    async with seeded.factory() as session:
+        room = await session.get(Room, seeded.room_id)
+        assert room is not None
+        assert room.initiative_active_index == 1
+
+
+async def test_handle_action_player_end_turn_rejected_when_not_their_turn(
+    seeded: SeededBoard,
+) -> None:
+    """A player cannot end a turn that is not theirs -> error ack, no broadcast."""
+    async with seeded.factory() as session:
+        room = await session.get(Room, seeded.room_id)
+        assert room is not None
+        session.add(
+            InitiativeEntry(
+                room_id=seeded.room_id,
+                character_id=None,
+                name="Goblin",
+                initiative=20,
+                order_index=0,
+            )
+        )
+        room.initiative_active_index = 0
+        await session.commit()
+
+    sio = _fake_sio()
+    _joined(
+        sio,
+        JoinedIdentity(
+            room_id=seeded.room_id,
+            role=ParticipantRole.player,
+            participant_id=seeded.player_participant_id,
+            character_id=seeded.player_character_id,
+        ),
+    )
+
+    ack = await handle_action(
+        sio,
+        "sid1",
+        {"version": 1, "payload": {"type": "endTurn"}},
+        sequencer=RoomSequencer(),
+        session_factory=seeded.factory,
+    )
+
+    assert ack["ok"] is False
+    args, kwargs = sio.emit.await_args
+    assert args[0] == "error"
+    assert kwargs == {"to": "sid1"}
+
+    # Pointer is unchanged (no broadcast, no mutation).
+    async with seeded.factory() as session:
+        room = await session.get(Room, seeded.room_id)
+        assert room is not None
+        assert room.initiative_active_index == 0
 
 
 async def test_handle_action_player_damage_persists_clamped(seeded: SeededBoard) -> None:

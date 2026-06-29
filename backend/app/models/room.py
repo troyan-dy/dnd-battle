@@ -6,7 +6,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import String, Uuid
+from sqlalchemy import Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -14,6 +14,7 @@ from app.models.enums import RoomStatus
 
 if TYPE_CHECKING:
     from app.models.character import Character
+    from app.models.initiative import InitiativeEntry
     from app.models.invite_link import InviteLink
     from app.models.participant import Participant
     from app.models.token import Token
@@ -38,6 +39,14 @@ class Room(Base, TimestampMixin):
     map_image_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     map_content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
+    # Initiative / turn-order pointer (CLAUDE.md BoardState). The ordered combatant
+    # rows live in ``initiative_entries``; these two columns track WHOSE turn it is.
+    # ``initiative_active_index`` is the 0-based position in that order (NULL until
+    # the host sets an order = combat not started); ``initiative_round`` counts the
+    # rounds, incremented each time the active pointer wraps past the last combatant.
+    initiative_active_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    initiative_round: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
     participants: Mapped[list[Participant]] = relationship(
         back_populates="room",
         cascade="all, delete-orphan",
@@ -51,6 +60,10 @@ class Room(Base, TimestampMixin):
         cascade="all, delete-orphan",
     )
     tokens: Mapped[list[Token]] = relationship(
+        back_populates="room",
+        cascade="all, delete-orphan",
+    )
+    initiative_entries: Mapped[list[InitiativeEntry]] = relationship(
         back_populates="room",
         cascade="all, delete-orphan",
     )

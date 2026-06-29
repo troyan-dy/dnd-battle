@@ -14,7 +14,15 @@ from dataclasses import dataclass
 
 import pytest
 import pytest_asyncio
-from app.models import Base, Character, Participant, ParticipantRole, Room, Token
+from app.models import (
+    Base,
+    Character,
+    InitiativeEntry,
+    Participant,
+    ParticipantRole,
+    Room,
+    Token,
+)
 from app.schemas.action import (
     ActionIntent,
     DamagePayload,
@@ -244,7 +252,55 @@ async def test_player_may_mark(seeded: Seeded) -> None:
     assert payload.label == "here"
 
 
-async def test_any_participant_may_end_turn(seeded: Seeded) -> None:
+async def _seat_initiative(seeded: Seeded, *, order: list[uuid.UUID], active_index: int) -> None:
+    """Seat the given characters in ``seeded``'s room and set the active turn."""
+    async with seeded.factory() as session:
+        room = await session.get(Room, seeded.room_id)
+        assert room is not None
+        for index, character_id in enumerate(order):
+            session.add(
+                InitiativeEntry(
+                    room_id=seeded.room_id,
+                    character_id=character_id,
+                    name=f"C{index}",
+                    initiative=20 - index,
+                    order_index=index,
+                )
+            )
+        room.initiative_active_index = active_index
+        await session.commit()
+
+
+async def test_host_may_always_end_turn(seeded: Seeded) -> None:
+    """The host may advance the order even before combat has started."""
+    async with seeded.factory() as session:
+        payload = await validate_intent(
+            session,
+            room_id=seeded.room_id,
+            role=ParticipantRole.host,
+            character_id=None,
+            intent=ActionIntent(payload=EndTurnPayload()),
+        )
+    assert isinstance(payload, EndTurnPayload)
+
+
+async def test_player_cannot_end_turn_before_combat(seeded: Seeded) -> None:
+    async with seeded.factory() as session:
+        with pytest.raises(IntentValidationError) as exc:
+            await validate_intent(
+                session,
+                room_id=seeded.room_id,
+                role=ParticipantRole.player,
+                character_id=seeded.p1_character_id,
+                intent=ActionIntent(payload=EndTurnPayload()),
+            )
+    assert "Combat has not started" in exc.value.reason
+
+
+async def test_player_may_end_their_own_turn(seeded: Seeded) -> None:
+    await _seat_initiative(
+        seeded, order=[seeded.p1_character_id, seeded.p2_character_id], active_index=0
+    )
     async with seeded.factory() as session:
         payload = await validate_intent(
             session,
@@ -254,3 +310,19 @@ async def test_any_participant_may_end_turn(seeded: Seeded) -> None:
             intent=ActionIntent(payload=EndTurnPayload()),
         )
     assert isinstance(payload, EndTurnPayload)
+
+
+async def test_player_cannot_end_another_combatants_turn(seeded: Seeded) -> None:
+    await _seat_initiative(
+        seeded, order=[seeded.p1_character_id, seeded.p2_character_id], active_index=0
+    )
+    async with seeded.factory() as session:
+        with pytest.raises(IntentValidationError) as exc:
+            await validate_intent(
+                session,
+                room_id=seeded.room_id,
+                role=ParticipantRole.player,
+                character_id=seeded.p2_character_id,
+                intent=ActionIntent(payload=EndTurnPayload()),
+            )
+    assert "not your turn" in exc.value.reason

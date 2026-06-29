@@ -49,7 +49,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 ## Phase 5 — Combat actions (visible to all)
 - [x] Move token with grid snapping + distance measurement (feet)
 - [x] Marks / pings on the board (temporary, visible to everyone)
-- [ ] Initiative tracker + turn order; "end turn" advances it
+- [x] Initiative tracker + turn order; "end turn" advances it
 - [ ] Apply damage/healing to a token; HP updates broadcast live
 - [ ] Basic attack flow: choose target → roll → apply result, all see the log
 - [ ] Shared combat log panel

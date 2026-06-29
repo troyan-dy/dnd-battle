@@ -29,6 +29,13 @@ TOKEN_SIZE_MIN = 1
 TOKEN_SIZE_MAX = 8
 TOKEN_SIZE_DEFAULT = 1
 
+# Initiative roll bounds. A d20 initiative + modifiers realistically stays well
+# within these; we cap to reject abusive values while allowing big negatives.
+INITIATIVE_MIN = -50
+INITIATIVE_MAX = 100
+# A host may seat at most this many combatants in one turn order.
+INITIATIVE_MAX_ENTRIES = 100
+
 
 class AbilityScores(BaseModel):
     """The six D&D 2024 ability scores. Each defaults to the average (10)."""
@@ -238,16 +245,74 @@ class ResolveInviteResponse(BaseModel):
     character_id: uuid.UUID | None
 
 
+class InitiativeEntryInput(BaseModel):
+    """One combatant the host seats in the turn order when setting initiative.
+
+    Either bind it to an existing ``character_id`` (which must belong to the room)
+    or leave it ``None`` for an NPC/monster; ``name`` is the display label shown in
+    the tracker. ``initiative`` is the rolled value (higher acts first).
+    """
+
+    character_id: uuid.UUID | None = Field(
+        default=None, description="Character this combatant represents, or None for an NPC."
+    )
+    name: str = Field(min_length=1, max_length=120, description="Display label in the tracker.")
+    initiative: int = Field(
+        ge=INITIATIVE_MIN, le=INITIATIVE_MAX, description="Rolled initiative (higher acts first)."
+    )
+
+
+class SetInitiativeRequest(BaseModel):
+    """Host's request to (re)build a room's initiative order.
+
+    Replaces any existing order. Entries are sorted by ``initiative`` descending
+    (ties broken stably by the order given); the active turn resets to the first
+    combatant and the round counter resets to 1.
+    """
+
+    entries: list[InitiativeEntryInput] = Field(
+        default_factory=list,
+        max_length=INITIATIVE_MAX_ENTRIES,
+        description="Combatants to seat in the turn order (empty clears it).",
+    )
+
+
+class InitiativeEntryResponse(BaseModel):
+    """Read view of one combatant's seat in the turn order."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    character_id: uuid.UUID | None
+    name: str
+    initiative: int
+    order_index: int
+
+
+class InitiativeState(BaseModel):
+    """The full turn-order snapshot: the ordered combatants + whose turn it is.
+
+    ``active_index`` is the 0-based seat whose turn it currently is (``None`` when
+    no order is set = combat not started); ``round`` counts rounds. Part of the
+    reconnect-safe :class:`BoardState`, so a client that reloads its link rebuilds
+    the tracker exactly (CLAUDE.md rule 2).
+    """
+
+    active_index: int | None
+    round: int
+    entries: list[InitiativeEntryResponse]
+
+
 class BoardState(BaseModel):
     """The FULL current board snapshot pushed to a client when it (re)joins a room.
 
     This is the authoritative state a client renders the board from: every placed
-    ``token`` plus the ``character`` stat blocks they bind to. It is a complete,
-    idempotent read (reconnect-safe, CLAUDE.md rule 2) — reloading a link yields
-    the same snapshot, never a delta. Live mutation / the versioned Action
-    protocol are separate Phase 4 tasks.
+    ``token``, the ``character`` stat blocks they bind to, and the ``initiative``
+    turn order. It is a complete, idempotent read (reconnect-safe, CLAUDE.md rule
+    2) — reloading a link yields the same snapshot, never a delta.
     """
 
     room_id: uuid.UUID
     tokens: list[TokenResponse]
     characters: list[CharacterResponse]
+    initiative: InitiativeState

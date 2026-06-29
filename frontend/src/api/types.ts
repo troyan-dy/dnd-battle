@@ -107,6 +107,30 @@ export interface TokenResponse {
   size: number;
 }
 
+/** One combatant's seat in a room's initiative / turn order. */
+export interface InitiativeEntryResponse {
+  id: string;
+  /** Bound character, or null for an NPC/monster combatant. */
+  character_id: string | null;
+  /** Display label shown in the tracker. */
+  name: string;
+  /** Rolled initiative value (higher acts first). */
+  initiative: number;
+  /** Resolved 0-based seat in the turn order. */
+  order_index: number;
+}
+
+/**
+ * The full turn-order snapshot: the ordered combatants + whose turn it is.
+ * `active_index` is the 0-based seat whose turn it currently is (null when no
+ * order is set = combat not started); `round` counts rounds.
+ */
+export interface InitiativeState {
+  active_index: number | null;
+  round: number;
+  entries: InitiativeEntryResponse[];
+}
+
 /**
  * The FULL current board snapshot the server pushes to a client when it (re)joins
  * a room (Socket.IO `boardState` event). Mirrors `app.schemas.room.BoardState`.
@@ -116,6 +140,7 @@ export interface BoardState {
   room_id: string;
   tokens: TokenResponse[];
   characters: CharacterResponse[];
+  initiative: InitiativeState;
 }
 
 // ---------------------------------------------------------------------------

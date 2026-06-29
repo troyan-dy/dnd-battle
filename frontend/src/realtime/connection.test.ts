@@ -88,6 +88,7 @@ describe('createBoardSocket', () => {
       room_id: 'room-1',
       tokens: [{ id: 't1', room_id: 'room-1', character_id: 'c1', x: 3, y: 4, size: 1 }],
       characters: [],
+      initiative: { active_index: null, round: 1, entries: [] },
     };
     fake.fire('boardState', snapshot);
 

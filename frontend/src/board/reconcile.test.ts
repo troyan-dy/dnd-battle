@@ -32,7 +32,12 @@ function pos(tokens: TokenResponse[], id: string): { x: number; y: number } {
 
 describe('reconcile', () => {
   it('builds authoritative tokens from a BoardState and renders them', () => {
-    const state: BoardState = { room_id: 'r1', tokens: [token({ x: 2, y: 3 })], characters: [] };
+    const state: BoardState = {
+      room_id: 'r1',
+      tokens: [token({ x: 2, y: 3 })],
+      characters: [],
+      initiative: { active_index: null, round: 1, entries: [] },
+    };
     const board = fromBoardState(state);
     expect(pos(displayTokens(board), 't1')).toEqual({ x: 2, y: 3 });
   });

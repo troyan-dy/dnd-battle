@@ -144,4 +144,79 @@ describe('MapBoard', () => {
     // MarkLayer draws two Circles per mark (ring + dot).
     expect(screen.getAllByTestId('circle').length).toBeGreaterThan(0);
   });
+
+  it('shows the initiative tracker from boardState and emits endTurn', async () => {
+    const img = { width: 640, height: 480 } as HTMLImageElement;
+    imageState.current = { image: img, status: 'loaded' };
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+    render(<MapBoard roomId="room-1" token="tok-1" isHost />);
+    await flushHydrate();
+
+    // No tracker until the server pushes an order.
+    expect(screen.queryByRole('group', { name: /initiative order/i })).toBeNull();
+
+    act(() => {
+      socketHarness.options?.onBoardState?.({
+        room_id: 'room-1',
+        tokens: [],
+        characters: [],
+        initiative: {
+          active_index: 0,
+          round: 1,
+          entries: [
+            { id: 'e0', character_id: null, name: 'Goblin', initiative: 15, order_index: 0 },
+          ],
+        },
+      });
+    });
+
+    expect(screen.getByText('Round 1')).toBeInTheDocument();
+    expect(screen.getByText('Goblin')).toBeInTheDocument();
+
+    // Host view (default props) -> End turn enabled and emits the intent.
+    fireEvent.click(screen.getByRole('button', { name: 'End turn' }));
+    expect(socketHarness.emitAction).toHaveBeenCalledWith(socketHarness.socket, {
+      type: 'endTurn',
+    });
+  });
+
+  it('advances the tracker when an endTurn action is broadcast', async () => {
+    renderLoadedBoard();
+    await flushHydrate();
+
+    act(() => {
+      socketHarness.options?.onBoardState?.({
+        room_id: 'room-1',
+        tokens: [],
+        characters: [],
+        initiative: {
+          active_index: 0,
+          round: 1,
+          entries: [
+            { id: 'e0', character_id: null, name: 'Goblin', initiative: 15, order_index: 0 },
+            { id: 'e1', character_id: null, name: 'Orc', initiative: 8, order_index: 1 },
+          ],
+        },
+      });
+    });
+
+    // Goblin is active first.
+    expect(screen.getByText('Goblin').closest('li')).toHaveAttribute('aria-current', 'true');
+
+    const endTurn: Action = {
+      version: 1,
+      id: 'act-end-1',
+      room_id: 'room-1',
+      actor_participant_id: 'p-1',
+      seq: 1,
+      payload: { type: 'endTurn' },
+    };
+    act(() => {
+      socketHarness.options?.onAction?.(endTurn);
+    });
+
+    // Pointer advanced to Orc.
+    expect(screen.getByText('Orc').closest('li')).toHaveAttribute('aria-current', 'true');
+  });
 });

@@ -299,6 +299,66 @@
   color: #1e1e24;
 }
 
+/* Initiative / turn-order tracker overlay (top-right of the board) */
+.initiative-tracker {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  min-width: 160px;
+  padding: 0.5rem 0.6rem;
+  background: rgba(21, 21, 26, 0.92);
+  color: #e6e6ec;
+  border: 1px solid #2c2c34;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  z-index: 2;
+}
+.initiative-tracker__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+.initiative-tracker__round {
+  font-weight: 600;
+}
+.initiative-tracker__end-turn {
+  cursor: pointer;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid #4a4a55;
+  border-radius: 4px;
+  background: #ffd33d;
+  color: #1e1e24;
+  font-size: 0.78rem;
+}
+.initiative-tracker__end-turn:disabled {
+  cursor: not-allowed;
+  background: transparent;
+  color: #6a6a74;
+  border-color: #2c2c34;
+}
+.initiative-tracker__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.initiative-tracker__entry {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.15rem 0.3rem;
+  border-radius: 4px;
+}
+.initiative-tracker__entry.is-active {
+  background: #2f2f5a;
+  font-weight: 600;
+}
+.initiative-tracker__initiative {
+  flex: 0 0 1.6rem;
+  text-align: right;
+  color: #9a9aa6;
+}
+
 /* Player view: shared board on the left, the player's own character panel right */
 .board-view {
   display: flex;
