@@ -67,7 +67,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Persist room + board snapshots so a session survives a server restart
 - [x] Fog of war / hidden tokens controllable by host
 - [x] Error handling + user-facing messages on desync/disconnect
-- [ ] e2e Playwright: two browser clients, one moves → other sees it
+- [!] e2e Playwright: two browser clients, one moves → other sees it (BLOCKED — see STATE.md NEEDS HUMAN: no network to install Playwright + browser binaries)
 
 ---
 
