@@ -15,7 +15,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Integer, Uuid
+from sqlalchemy import Boolean, ForeignKey, Integer, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -48,6 +48,12 @@ class Token(Base, TimestampMixin):
     y: Mapped[int] = mapped_column(Integer, nullable=False)
     # Footprint in grid cells (1 = Tiny/Small/Medium, 2 = Large, 3 = Huge, ...).
     size: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    # Fog of war: when True the host has HIDDEN this token. The server filters
+    # hidden tokens (and their characters) out of the BoardState it pushes to
+    # players, and never broadcasts their movement/HP to players (CLAUDE.md rule
+    # 3 — enforced on the server). Only the host may toggle this. Durable so a
+    # reconnecting client rebuilds the correct fog (CLAUDE.md rule 2).
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False)
 
     room: Mapped[Room] = relationship(back_populates="tokens")
     character: Mapped[Character] = relationship(back_populates="token")

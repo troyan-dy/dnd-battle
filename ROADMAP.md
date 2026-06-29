@@ -65,7 +65,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 ## Phase 7 — Permissions, persistence, polish
 - [x] Server-enforced permissions: player acts only on own token; host can do all
 - [x] Persist room + board snapshots so a session survives a server restart
-- [ ] Fog of war / hidden tokens controllable by host
+- [x] Fog of war / hidden tokens controllable by host
 - [ ] Error handling + user-facing messages on desync/disconnect
 - [ ] e2e Playwright: two browser clients, one moves → other sees it
 
@@ -77,6 +77,12 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [ ] Spell area templates (cone/sphere/line)
 - [ ] Mobile/touch controls
 - [ ] Reconnect grace + spectator role
+- [ ] Fog of war v2: a HIDDEN creature attacking a VISIBLE player token is currently
+      suppressed from that player entirely (their HP reflects only on the next
+      BoardState resync, not live). Refine so a player sees damage to their OWN token
+      without revealing the hidden attacker. Also: per-player own-character inclusion
+      if a host ever hides a player's own token (today the player-filtered BoardState
+      is role-uniform, so a hidden own-token drops from that player's board view).
 - [ ] Host-only auth gate on HTTP room-CONFIG endpoints (place/update token, set
       initiative, add player, upload map, revoke links) — currently unguarded.
       NEEDS ARCHITECT + human sign-off: introduces HTTP authentication (reuse the

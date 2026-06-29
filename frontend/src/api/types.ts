@@ -135,6 +135,13 @@ export interface TokenResponse {
   x: number;
   y: number;
   size: number;
+  /**
+   * Fog of war: the host has hidden this token. A player NEVER receives a hidden
+   * token (the server filters them out), so any token a client holds with
+   * `hidden=true` was delivered to a host, who renders it distinctly. Defaults to
+   * false for older payloads that omit it.
+   */
+  hidden?: boolean;
 }
 
 /** One combatant's seat in a room's initiative / turn order. */
@@ -182,7 +189,8 @@ export interface BoardState {
 /** Current Action-protocol version (mirrors ACTION_PROTOCOL_VERSION). */
 export const ACTION_PROTOCOL_VERSION = 1;
 
-export type ActionType = 'move' | 'mark' | 'damage' | 'heal' | 'attack' | 'endTurn';
+export type ActionType =
+  'move' | 'mark' | 'damage' | 'heal' | 'attack' | 'setVisibility' | 'endTurn';
 
 /** Move a token to a grid cell. */
 export interface MovePayload {
@@ -265,6 +273,19 @@ export interface AttackResultPayload {
   damage_total: number;
 }
 
+/**
+ * Host → server: hide or reveal a token on the board (fog of war). HOST-ONLY,
+ * enforced on the server. Intent-only — the server does NOT rebroadcast it as an
+ * Action; instead it pushes a fresh, role-filtered BoardState to each side
+ * (players never receive a hidden token).
+ */
+export interface SetVisibilityPayload {
+  type: 'setVisibility';
+  token_id: string;
+  /** true hides the token from players; false reveals it. */
+  hidden: boolean;
+}
+
 /** Advance the initiative order to the next combatant. */
 export interface EndTurnPayload {
   type: 'endTurn';
@@ -275,7 +296,13 @@ export interface EndTurnPayload {
  * server `IntentActionPayload`: an attack carries no roll result.
  */
 export type IntentActionPayload =
-  MovePayload | MarkPayload | DamagePayload | HealPayload | AttackIntentPayload | EndTurnPayload;
+  | MovePayload
+  | MarkPayload
+  | DamagePayload
+  | HealPayload
+  | AttackIntentPayload
+  | SetVisibilityPayload
+  | EndTurnPayload;
 
 /**
  * Discriminated union of the payloads the server BROADCASTS. Mirrors the server

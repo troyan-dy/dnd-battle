@@ -232,7 +232,13 @@ class UpdateTokenRequest(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    """Board-state view of a single token: its binding and grid placement."""
+    """Board-state view of a single token: its binding and grid placement.
+
+    ``hidden`` is the fog-of-war flag the host controls. A player NEVER receives a
+    hidden token (the server filters them out of the player BoardState), so any
+    token a client holds with ``hidden=True`` was delivered to a host, who renders
+    it distinctly (CLAUDE.md rule 3 — enforced on the server).
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -242,6 +248,7 @@ class TokenResponse(BaseModel):
     x: int
     y: int
     size: int
+    hidden: bool = False
 
 
 class CharacterResponse(BaseModel):

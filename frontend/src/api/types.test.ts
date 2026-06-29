@@ -36,6 +36,16 @@ describe('Action protocol types', () => {
     }
   });
 
+  it('narrows the setVisibility intent payload by its discriminator', () => {
+    const payload: ActionPayload = { type: 'setVisibility', token_id: 't1', hidden: true };
+    if (payload.type === 'setVisibility') {
+      expect(payload.token_id).toBe('t1');
+      expect(payload.hidden).toBe(true);
+    } else {
+      throw new Error('expected a setVisibility payload');
+    }
+  });
+
   it('accepts a minimal intent and a full server broadcast', () => {
     const intent: ActionIntent = { payload: { type: 'endTurn' } };
     expect(intent.payload.type).toBe('endTurn');

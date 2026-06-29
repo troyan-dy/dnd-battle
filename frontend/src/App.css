@@ -345,6 +345,38 @@
   opacity: 0.5;
 }
 
+/* Host fog-of-war control: hide / reveal a token (bottom-left, right of HP) */
+.map-board__visibility-controls {
+  position: absolute;
+  bottom: 8px;
+  left: 320px;
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-end;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  background: rgba(30, 30, 36, 0.85);
+  color: #cfcfd6;
+  font-size: 0.8rem;
+}
+.map-board__visibility-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.map-board__visibility-toggle {
+  cursor: pointer;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid #f0d24b;
+  border-radius: 4px;
+  background: transparent;
+  color: #f0d24b;
+  font-size: 0.8rem;
+}
+.map-board__visibility-toggle[aria-pressed='true'] {
+  background: rgba(240, 210, 75, 0.18);
+}
+
 /* Attack control (bottom-left of the board, above the HP control) */
 .map-board__attack-controls {
   position: absolute;

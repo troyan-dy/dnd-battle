@@ -26,19 +26,41 @@ from app.schemas.room import BoardState, CharacterResponse, TokenResponse
 from app.services.initiative import build_initiative_state
 
 
-async def build_board_state(session: AsyncSession, room_id: uuid.UUID) -> BoardState:
+async def build_board_state(
+    session: AsyncSession,
+    room_id: uuid.UUID,
+    *,
+    include_hidden: bool = True,
+) -> BoardState:
     """Assemble the full BoardState for ``room_id`` from persisted rows.
 
     Joins the placed tokens, their character stat blocks, and the initiative
     turn-order snapshot — everything a (re)joining client needs to render the board.
+
+    Fog of war (CLAUDE.md rule 3, enforced on the SERVER): when ``include_hidden``
+    is ``False`` (a PLAYER view) the host's hidden tokens are stripped, AND any
+    character referenced ONLY by a hidden token is stripped too — so a player can
+    neither render a hidden token nor read its stat block off the wire. The host
+    view (``include_hidden=True``, the default) receives everything, with each
+    token's ``hidden`` flag, so the host can render hidden pieces distinctly.
     """
-    tokens = (await session.execute(select(Token).where(Token.room_id == room_id))).scalars().all()
-    characters = (
+    tokens = list(
+        (await session.execute(select(Token).where(Token.room_id == room_id))).scalars().all()
+    )
+    characters = list(
         (await session.execute(select(Character).where(Character.room_id == room_id)))
         .scalars()
         .all()
     )
     initiative = await build_initiative_state(session, room_id)
+
+    if not include_hidden:
+        tokens = [t for t in tokens if not t.hidden]
+        # Only keep characters a visible token binds to, so a hidden monster's
+        # stat block is never delivered to a player.
+        visible_character_ids = {t.character_id for t in tokens}
+        characters = [c for c in characters if c.id in visible_character_ids]
+
     return BoardState(
         room_id=room_id,
         tokens=[TokenResponse.model_validate(t) for t in tokens],

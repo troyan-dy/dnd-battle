@@ -51,6 +51,9 @@ export default function TokenLayer({ tokens, config, canDrag, onMove }: TokenLay
         const conditions = character.conditions.length > 0 ? character.conditions.join(', ') : '';
         const draggable = canDrag?.(token) ?? false;
         const measuring = dragFeet?.tokenId === token.id ? dragFeet.feet : null;
+        // Fog of war: only the host ever receives a hidden token; render it dimmed
+        // with a marker so the DM can tell it is concealed from players.
+        const isHidden = token.hidden ?? false;
 
         // The candidate cell under the token's current (dragged) world top-left.
         const cellUnderDrag = (node: Konva.Node) =>
@@ -79,6 +82,7 @@ export default function TokenLayer({ tokens, config, canDrag, onMove }: TokenLay
             key={token.id}
             listening={draggable}
             draggable={draggable}
+            opacity={isHidden ? 0.4 : 1}
             onDragMove={draggable ? handleDragMove : undefined}
             onDragEnd={draggable ? handleDragEnd : undefined}
           >
@@ -156,6 +160,21 @@ export default function TokenLayer({ tokens, config, canDrag, onMove }: TokenLay
                 width={rect.width}
                 align="center"
                 text={conditions}
+                fontSize={font * 0.8}
+                fill="#f0d24b"
+                listening={false}
+                perfectDrawEnabled={false}
+              />
+            )}
+
+            {/* Fog-of-war marker: this token is hidden from players (host view) */}
+            {isHidden && (
+              <Text
+                x={rect.x}
+                y={rect.y + rect.height / 2 - font / 2}
+                width={rect.width}
+                align="center"
+                text="hidden"
                 fontSize={font * 0.8}
                 fill="#f0d24b"
                 listening={false}

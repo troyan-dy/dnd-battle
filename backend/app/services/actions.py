@@ -58,6 +58,7 @@ from app.schemas.action import (
     EndTurnPayload,
     HealPayload,
     MovePayload,
+    SetVisibilityPayload,
 )
 from app.schemas.room import ARMOR_CLASS_DEFAULT
 from app.services.initiative import active_character_id, advance_turn
@@ -71,6 +72,8 @@ _TOKEN_NOT_OWNED = "You can only act on your own token."
 # these messages leak nothing a participant cannot already see in the tracker).
 _COMBAT_NOT_STARTED = "Combat has not started."
 _NOT_YOUR_TURN = "It is not your turn."
+# Fog of war: only the host (DM) may hide/reveal tokens (CLAUDE.md rule 3).
+_VISIBILITY_HOST_ONLY = "Only the host can change token visibility."
 
 
 class IntentValidationError(Exception):
@@ -124,6 +127,12 @@ async def validate_intent(
     # order; a player may only end the turn of their OWN active combatant.
     elif isinstance(payload, EndTurnPayload):
         await _authorize_end_turn(session, room_id=room_id, role=role, character_id=character_id)
+    # Hiding/revealing a token is fog of war — HOST-ONLY (CLAUDE.md rule 3). The
+    # token must also exist on this board.
+    elif isinstance(payload, SetVisibilityPayload):
+        if role != ParticipantRole.host:
+            raise IntentValidationError(_VISIBILITY_HOST_ONLY)
+        await _require_token_in_room(session, room_id=room_id, token_id=payload.token_id)
     # `mark` carries no token and is allowed for any room participant (a ping).
 
     return payload
@@ -211,6 +220,7 @@ async def apply_action(
     * ``move``    -> update the token's grid coordinates.
     * ``damage``  -> reduce the bound character's current HP, clamped at 0.
     * ``heal``    -> restore the bound character's current HP, clamped at max HP.
+    * ``setVisibility`` -> flip the token's ``hidden`` flag (fog of war).
     * ``endTurn`` -> advance the room's initiative pointer to the next combatant.
     * ``mark``    -> transient ping, carries no durable board state -> no row change.
 
@@ -234,6 +244,10 @@ async def apply_action(
             character = await session.get(Character, token.character_id)
             if character is not None:
                 character.current_hp = min(character.max_hp, character.current_hp + payload.amount)
+    elif isinstance(payload, SetVisibilityPayload):
+        token = await session.get(Token, payload.token_id)
+        if token is not None and token.room_id == room_id:
+            token.hidden = payload.hidden
     elif isinstance(payload, EndTurnPayload):
         room = await session.get(Room, room_id)
         if room is not None:

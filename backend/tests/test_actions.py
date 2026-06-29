@@ -21,6 +21,7 @@ from app.schemas.action import (
     HealPayload,
     MarkPayload,
     MovePayload,
+    SetVisibilityPayload,
 )
 from app.schemas.room import GRID_COORD_MAX
 from pydantic import ValidationError
@@ -59,6 +60,17 @@ def test_damage_and_endturn_payloads_select_correct_member() -> None:
     end = ActionIntent.model_validate({"payload": {"type": "endTurn"}})
     assert isinstance(end.payload, EndTurnPayload)
     assert end.payload.type is ActionType.END_TURN
+
+
+def test_set_visibility_intent_selects_correct_member() -> None:
+    token_id = uuid.uuid4()
+    intent = ActionIntent.model_validate(
+        {"payload": {"type": "setVisibility", "token_id": str(token_id), "hidden": True}}
+    )
+    assert isinstance(intent.payload, SetVisibilityPayload)
+    assert intent.payload.type is ActionType.SET_VISIBILITY
+    assert intent.payload.token_id == token_id
+    assert intent.payload.hidden is True
 
 
 def test_heal_payload_selects_correct_member() -> None:

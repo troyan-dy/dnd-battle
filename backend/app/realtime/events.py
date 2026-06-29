@@ -42,12 +42,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import async_session_factory
 from app.models.enums import ParticipantRole
+from app.models.token import Token
 from app.realtime.sequence import RoomSequencer
 from app.schemas.action import (
     Action,
     ActionIntent,
     AttackIntentPayload,
     BroadcastActionPayload,
+    DamagePayload,
+    HealPayload,
+    IntentActionPayload,
+    MovePayload,
+    SetVisibilityPayload,
 )
 from app.services.actions import (
     IntentValidationError,
@@ -101,6 +107,28 @@ def room_name(room_id: str) -> str:
     return f"{ROOM_PREFIX}{room_id}"
 
 
+def host_room_name(room_id: str) -> str:
+    """Sub-room holding only the room's HOST connections (fog-of-war broadcasts).
+
+    A host is in BOTH the base room and this sub-room; a player is only in the base
+    room (+ the player sub-room). Emitting to this sub-room reaches hosts ONLY, so
+    a hidden token's movement / HP and visibility changes never leak to players.
+    """
+    return f"{ROOM_PREFIX}{room_id}:host"
+
+
+def player_room_name(room_id: str) -> str:
+    """Sub-room holding only the room's PLAYER connections (filtered resyncs)."""
+    return f"{ROOM_PREFIX}{room_id}:player"
+
+
+def role_room_name(room_id: str, role: ParticipantRole) -> str:
+    """The role-specific sub-room a connection joins alongside the base room."""
+    if role == ParticipantRole.host:
+        return host_room_name(room_id)
+    return player_room_name(room_id)
+
+
 def _extract_token(data: Any) -> str | None:
     """Pull a non-blank ``token`` string out of an arbitrary client payload."""
     if isinstance(data, dict):
@@ -149,10 +177,16 @@ async def handle_join(
         resolved = await resolve_active_invite(session, token)
         if resolved is None:
             return await _reject_join(sio, sid, _INVALID_TOKEN_ERROR)
-        board = await build_board_state(session, resolved.room_id)
+        # Fog of war: a player never receives the host's hidden tokens (CLAUDE.md
+        # rule 3 — enforced on the server); the host receives the full board.
+        is_host = resolved.role == ParticipantRole.host
+        board = await build_board_state(session, resolved.room_id, include_hidden=is_host)
 
     room_id = str(resolved.room_id)
     await sio.enter_room(sid, room_name(room_id))
+    # Also join the role-specific sub-room so fog-of-war broadcasts can target hosts
+    # (or players) only.
+    await sio.enter_room(sid, role_room_name(room_id, resolved.role))
     # Remember this connection's authenticated identity for later `action` events.
     await sio.save_session(
         sid,
@@ -229,6 +263,26 @@ async def handle_action(
         except IntentValidationError as exc:
             return await _reject_action(sio, sid, exc.reason)
 
+        # Fog of war: a visibility change is NOT rebroadcast as an Action (that
+        # would leak board info). The host's hidden-flag flip is applied, then each
+        # side is RESYNCED with a role-filtered BoardState — players never receive a
+        # hidden token, hosts get the full board (CLAUDE.md rule 3, server-enforced).
+        if isinstance(payload, SetVisibilityPayload):
+            await apply_action(session, room_id=identity.room_id, payload=payload)
+            host_board = await build_board_state(session, identity.room_id, include_hidden=True)
+            player_board = await build_board_state(session, identity.room_id, include_hidden=False)
+            await session.commit()
+            room_id_str = str(identity.room_id)
+            await sio.emit(
+                "boardState", host_board.model_dump(mode="json"), room=host_room_name(room_id_str)
+            )
+            await sio.emit(
+                "boardState",
+                player_board.model_dump(mode="json"),
+                room=player_room_name(room_id_str),
+            )
+            return {"ok": True}
+
         # An attack is RESOLVED server-side (dice rolled here, damage applied) and
         # broadcast as its result payload; every other action's durable effect is
         # applied and the validated intent payload is broadcast unchanged.
@@ -243,6 +297,11 @@ async def handle_action(
         # Allocate the broadcast seq and persist the room's high-water mark in the
         # SAME transaction as the durable effect, so the sequence survives a restart.
         seq = await reserve_action_seq(session, room_id=identity.room_id, sequencer=sequencer)
+        # Fog of war: if this action touches a token currently hidden from players,
+        # broadcast it to HOSTS only so the hidden token never leaks (CLAUDE.md rule 3).
+        hidden_from_players = await _action_hidden_from_players(
+            session, room_id=identity.room_id, payload=payload
+        )
         await session.commit()
 
     action = Action(
@@ -252,10 +311,42 @@ async def handle_action(
         seq=seq,
         payload=broadcast_payload,
     )
-    # Broadcast to EVERYONE in the room (including the sender, which reconciles its
-    # optimistic update against this authoritative event — next Phase 4 task).
-    await sio.emit("action", action.model_dump(mode="json"), room=room_name(str(identity.room_id)))
+    # Broadcast to EVERYONE in the room (sender included, which reconciles its
+    # optimistic move), UNLESS the action touches a hidden token — then only hosts.
+    target_room = (
+        host_room_name(str(identity.room_id))
+        if hidden_from_players
+        else room_name(str(identity.room_id))
+    )
+    await sio.emit("action", action.model_dump(mode="json"), room=target_room)
     return {"ok": True, "actionId": str(action.id), "seq": seq}
+
+
+async def _token_hidden(session: AsyncSession, *, room_id: uuid.UUID, token_id: uuid.UUID) -> bool:
+    """Whether ``token_id`` exists in ``room_id`` and is currently hidden from players."""
+    token = await session.get(Token, token_id)
+    return token is not None and token.room_id == room_id and token.hidden
+
+
+async def _action_hidden_from_players(
+    session: AsyncSession,
+    *,
+    room_id: uuid.UUID,
+    payload: IntentActionPayload,
+) -> bool:
+    """Whether a (non-visibility) action references a token hidden from players.
+
+    Such an action is broadcast to hosts only, so a hidden token's movement / HP /
+    attack participation never leaks to players (fog of war, CLAUDE.md rule 3). An
+    attack is hidden when EITHER the attacker or the target is a hidden token.
+    """
+    if isinstance(payload, (MovePayload, DamagePayload, HealPayload)):
+        return await _token_hidden(session, room_id=room_id, token_id=payload.token_id)
+    if isinstance(payload, AttackIntentPayload):
+        if await _token_hidden(session, room_id=room_id, token_id=payload.attacker_token_id):
+            return True
+        return await _token_hidden(session, room_id=room_id, token_id=payload.target_token_id)
+    return False
 
 
 async def _reject_action(sio: Any, sid: str, message: str) -> dict[str, Any]:

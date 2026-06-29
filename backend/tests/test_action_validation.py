@@ -32,8 +32,15 @@ from app.schemas.action import (
     HealPayload,
     MarkPayload,
     MovePayload,
+    SetVisibilityPayload,
 )
-from app.services.actions import IntentValidationError, resolve_attack, validate_intent
+from app.services.actions import (
+    IntentValidationError,
+    apply_action,
+    resolve_attack,
+    validate_intent,
+)
+from app.services.board import build_board_state
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -609,3 +616,106 @@ async def test_player_cannot_end_another_combatants_turn(seeded: Seeded) -> None
                 intent=ActionIntent(payload=EndTurnPayload()),
             )
     assert "not your turn" in exc.value.reason
+
+
+# --- fog of war: hidden tokens (host-only) ---------------------------------------
+
+
+def _set_visibility(token_id: uuid.UUID, hidden: bool) -> ActionIntent:
+    return ActionIntent(payload=SetVisibilityPayload(token_id=token_id, hidden=hidden))
+
+
+async def test_host_may_set_token_visibility(seeded: Seeded) -> None:
+    """The host may hide/reveal any token in their room (fog of war)."""
+    async with seeded.factory() as session:
+        payload = await validate_intent(
+            session,
+            room_id=seeded.room_id,
+            role=ParticipantRole.host,
+            character_id=None,
+            intent=_set_visibility(seeded.token2_id, hidden=True),
+        )
+    assert isinstance(payload, SetVisibilityPayload)
+    assert payload.token_id == seeded.token2_id
+    assert payload.hidden is True
+
+
+async def test_player_cannot_set_token_visibility(seeded: Seeded) -> None:
+    """A player may NOT hide/reveal tokens — even their own (CLAUDE.md rule 3)."""
+    async with seeded.factory() as session:
+        with pytest.raises(IntentValidationError) as exc:
+            await validate_intent(
+                session,
+                room_id=seeded.room_id,
+                role=ParticipantRole.player,
+                character_id=seeded.p1_character_id,
+                intent=_set_visibility(seeded.token1_id, hidden=True),
+            )
+    assert "host" in exc.value.reason.lower()
+
+
+async def test_set_visibility_unknown_token_is_rejected(seeded: Seeded) -> None:
+    async with seeded.factory() as session:
+        with pytest.raises(IntentValidationError) as exc:
+            await validate_intent(
+                session,
+                room_id=seeded.room_id,
+                role=ParticipantRole.host,
+                character_id=None,
+                intent=_set_visibility(uuid.uuid4(), hidden=True),
+            )
+    assert "not on this board" in exc.value.reason
+
+
+async def test_apply_set_visibility_flips_hidden_flag(seeded: Seeded) -> None:
+    """apply_action toggles the durable Token.hidden flag both ways."""
+    async with seeded.factory() as session:
+        await apply_action(
+            session,
+            room_id=seeded.room_id,
+            payload=SetVisibilityPayload(token_id=seeded.token2_id, hidden=True),
+        )
+        await session.commit()
+    async with seeded.factory() as session:
+        token = await session.get(Token, seeded.token2_id)
+        assert token is not None
+        assert token.hidden is True
+
+    async with seeded.factory() as session:
+        await apply_action(
+            session,
+            room_id=seeded.room_id,
+            payload=SetVisibilityPayload(token_id=seeded.token2_id, hidden=False),
+        )
+        await session.commit()
+    async with seeded.factory() as session:
+        token = await session.get(Token, seeded.token2_id)
+        assert token is not None
+        assert token.hidden is False
+
+
+async def test_build_board_state_filters_hidden_tokens_for_players(seeded: Seeded) -> None:
+    """A player BoardState excludes hidden tokens AND their characters; host sees all."""
+    async with seeded.factory() as session:
+        token2 = await session.get(Token, seeded.token2_id)
+        assert token2 is not None
+        token2.hidden = True
+        await session.commit()
+
+    async with seeded.factory() as session:
+        host_board = await build_board_state(session, seeded.room_id, include_hidden=True)
+        player_board = await build_board_state(session, seeded.room_id, include_hidden=False)
+
+    # Host receives every token (with the hidden flag) and every character.
+    host_token_ids = {t.id for t in host_board.tokens}
+    assert {seeded.token1_id, seeded.token2_id} <= host_token_ids
+    assert any(t.id == seeded.token2_id and t.hidden for t in host_board.tokens)
+    assert {seeded.p1_character_id, seeded.p2_character_id} <= {c.id for c in host_board.characters}
+
+    # The player never receives the hidden token nor its character stat block.
+    player_token_ids = {t.id for t in player_board.tokens}
+    assert seeded.token1_id in player_token_ids
+    assert seeded.token2_id not in player_token_ids
+    player_character_ids = {c.id for c in player_board.characters}
+    assert seeded.p1_character_id in player_character_ids
+    assert seeded.p2_character_id not in player_character_ids

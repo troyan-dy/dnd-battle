@@ -72,6 +72,7 @@ class ActionType(enum.StrEnum):
     HEAL = "heal"
     ATTACK = "attack"
     END_TURN = "endTurn"
+    SET_VISIBILITY = "setVisibility"
 
 
 class MovePayload(BaseModel):
@@ -202,6 +203,22 @@ class AttackResultPayload(BaseModel):
     damage_total: int = Field(ge=0, description="Total damage applied to the target (0 on miss).")
 
 
+class SetVisibilityPayload(BaseModel):
+    """Host → server: hide or reveal a token on the board (fog of war).
+
+    HOST-ONLY (enforced in :func:`app.services.actions.validate_intent`). This is
+    an INTENT-only payload: the server does not rebroadcast it as an Action — a
+    visibility change leaks board info, so instead the server applies the durable
+    ``Token.hidden`` flip and pushes a fresh, role-FILTERED :class:`BoardState` to
+    each side (players never receive a hidden token). It therefore appears in the
+    intent union only, not the broadcast union (mirrors the attack-intent split).
+    """
+
+    type: Literal[ActionType.SET_VISIBILITY] = ActionType.SET_VISIBILITY
+    token_id: uuid.UUID = Field(description="Token to hide or reveal.")
+    hidden: bool = Field(description="True hides the token from players; False reveals it.")
+
+
 class EndTurnPayload(BaseModel):
     """Advance the initiative order to the next combatant. Carries no data."""
 
@@ -215,7 +232,13 @@ class EndTurnPayload(BaseModel):
 # :class:`AttackIntentPayload` (no roll), the server rolls and broadcasts an
 # :class:`AttackResultPayload`. Every other action is identical in both directions.
 IntentActionPayload = Annotated[
-    MovePayload | MarkPayload | DamagePayload | HealPayload | AttackIntentPayload | EndTurnPayload,
+    MovePayload
+    | MarkPayload
+    | DamagePayload
+    | HealPayload
+    | AttackIntentPayload
+    | SetVisibilityPayload
+    | EndTurnPayload,
     Field(discriminator="type"),
 ]
 BroadcastActionPayload = Annotated[

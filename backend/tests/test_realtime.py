@@ -41,6 +41,8 @@ from app.realtime.events import (
     handle_connect,
     handle_disconnect,
     handle_join,
+    host_room_name,
+    player_room_name,
     register_handlers,
     room_name,
 )
@@ -197,8 +199,11 @@ async def test_handle_join_player_enters_room_and_pushes_board_state(
     assert ack["role"] == ParticipantRole.player.value
     assert ack["characterId"] == str(seeded.player_character_id)
 
-    # Entered the room derived from the link (never client-supplied).
-    sio.enter_room.assert_awaited_once_with("sid1", room_name(str(seeded.room_id)))
+    # Entered the room derived from the link (never client-supplied), plus the
+    # role-specific sub-room used for fog-of-war broadcasts.
+    assert sio.enter_room.await_count == 2
+    sio.enter_room.assert_any_await("sid1", room_name(str(seeded.room_id)))
+    sio.enter_room.assert_any_await("sid1", player_room_name(str(seeded.room_id)))
 
     # The full snapshot was pushed to just this client.
     sio.emit.assert_awaited_once()
@@ -225,7 +230,9 @@ async def test_handle_join_host_token_has_no_character(seeded: SeededBoard) -> N
     assert ack["ok"] is True
     assert ack["role"] == ParticipantRole.host.value
     assert ack["characterId"] is None
-    sio.enter_room.assert_awaited_once_with("sid1", room_name(str(seeded.room_id)))
+    assert sio.enter_room.await_count == 2
+    sio.enter_room.assert_any_await("sid1", room_name(str(seeded.room_id)))
+    sio.enter_room.assert_any_await("sid1", host_room_name(str(seeded.room_id)))
 
 
 async def test_handle_join_trims_token(seeded: SeededBoard) -> None:
@@ -717,6 +724,142 @@ async def test_handle_action_host_attack_resolves_and_broadcasts(seeded: SeededB
         character = await session.get(Character, seeded.player_character_id)
         assert character is not None
         assert character.current_hp == max(0, 20 - damage_total)
+
+
+# --- fog of war ------------------------------------------------------------------
+
+
+async def test_handle_action_host_set_visibility_resyncs_role_filtered_boards(
+    seeded: SeededBoard,
+) -> None:
+    """Hiding a token flips its durable flag and resyncs each role with a filtered board.
+
+    A visibility change is NOT rebroadcast as an Action (that would leak board info):
+    the host gets the FULL board (hidden token present, flagged); players get a board
+    with the hidden token stripped entirely (CLAUDE.md rule 3, server-enforced).
+    """
+    sio = _fake_sio()
+    _joined(
+        sio,
+        JoinedIdentity(
+            room_id=seeded.room_id,
+            role=ParticipantRole.host,
+            participant_id=uuid.uuid4(),
+            character_id=None,
+        ),
+    )
+    token_id = await _seeded_token_id(seeded)
+    intent = {
+        "version": 1,
+        "payload": {"type": "setVisibility", "token_id": str(token_id), "hidden": True},
+    }
+
+    ack = await handle_action(
+        sio, "sid1", intent, sequencer=RoomSequencer(), session_factory=seeded.factory
+    )
+
+    assert ack["ok"] is True
+    # Exactly two role-filtered boardState pushes — no `action` broadcast.
+    calls = sio.emit.await_args_list
+    assert len(calls) == 2
+    by_room: dict[str, dict[str, object]] = {}
+    for call in calls:
+        name, payload = call.args
+        assert name == "boardState"
+        by_room[call.kwargs["room"]] = payload
+
+    host_board = by_room[host_room_name(str(seeded.room_id))]
+    player_board = by_room[player_room_name(str(seeded.room_id))]
+    host_tokens = host_board["tokens"]
+    player_tokens = player_board["tokens"]
+    assert isinstance(host_tokens, list)
+    assert isinstance(player_tokens, list)
+    # Host still sees the token (now flagged hidden); the player no longer sees it.
+    assert any(t["id"] == str(token_id) and t["hidden"] for t in host_tokens)
+    assert all(t["id"] != str(token_id) for t in player_tokens)
+
+    # The durable hidden flag persisted (reconnect-safe).
+    async with seeded.factory() as session:
+        token = await session.get(Token, token_id)
+        assert token is not None
+        assert token.hidden is True
+
+
+async def test_handle_action_player_cannot_set_visibility(seeded: SeededBoard) -> None:
+    """A player's setVisibility is rejected and changes no durable flag (host-only)."""
+    sio = _fake_sio()
+    _joined(
+        sio,
+        JoinedIdentity(
+            room_id=seeded.room_id,
+            role=ParticipantRole.player,
+            participant_id=seeded.player_participant_id,
+            character_id=seeded.player_character_id,
+        ),
+    )
+    token_id = await _seeded_token_id(seeded)
+    intent = {
+        "version": 1,
+        "payload": {"type": "setVisibility", "token_id": str(token_id), "hidden": True},
+    }
+
+    ack = await handle_action(
+        sio, "sid1", intent, sequencer=RoomSequencer(), session_factory=seeded.factory
+    )
+
+    assert ack["ok"] is False
+    args, kwargs = sio.emit.await_args
+    assert args[0] == "error"
+    assert kwargs == {"to": "sid1"}
+
+    async with seeded.factory() as session:
+        token = await session.get(Token, token_id)
+        assert token is not None
+        assert token.hidden is False
+
+
+async def test_handle_action_move_of_hidden_token_broadcasts_to_hosts_only(
+    seeded: SeededBoard,
+) -> None:
+    """Moving an already-hidden token broadcasts to HOSTS only — never to players."""
+    async with seeded.factory() as session:
+        token = (await session.execute(select(Token))).scalar_one()
+        token.hidden = True
+        await session.commit()
+
+    sio = _fake_sio()
+    _joined(
+        sio,
+        JoinedIdentity(
+            room_id=seeded.room_id,
+            role=ParticipantRole.host,
+            participant_id=uuid.uuid4(),
+            character_id=None,
+        ),
+    )
+    token_id = await _seeded_token_id(seeded)
+
+    ack = await handle_action(
+        sio,
+        "sid1",
+        _move_intent(token_id, 7, 8),
+        sequencer=RoomSequencer(),
+        session_factory=seeded.factory,
+    )
+
+    assert ack["ok"] is True
+    sio.emit.assert_awaited_once()
+    args, kwargs = sio.emit.await_args
+    assert args[0] == "action"
+    # Targeted at the host sub-room, NOT the base room (players never see it move).
+    assert kwargs == {"room": host_room_name(str(seeded.room_id))}
+    assert args[1]["payload"]["type"] == "move"
+
+    # The move still persisted durably (a reconnecting host rebuilds it).
+    async with seeded.factory() as session:
+        moved = await session.get(Token, token_id)
+        assert moved is not None
+        assert (moved.x, moved.y) == (7, 8)
 
 
 async def test_handle_action_seq_is_monotonic_per_room(seeded: SeededBoard) -> None:

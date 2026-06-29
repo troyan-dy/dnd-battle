@@ -32,6 +32,7 @@ import TokenLayer from './TokenLayer';
 import MarkLayer from './MarkLayer';
 import HpControls from './HpControls';
 import AttackControls from './AttackControls';
+import VisibilityControls from './VisibilityControls';
 import CombatLogPanel from './CombatLogPanel';
 import InitiativeTracker from './InitiativeTracker';
 import { applyHpAction } from './hp';
@@ -295,6 +296,17 @@ export default function MapBoard({
     void emitAction(socket, { type: 'heal', token_id: tokenId, amount });
   }, []);
 
+  // Host hides / reveals a token (fog of war). We only emit the intent; the server
+  // (HOST-ONLY, CLAUDE.md rule 3) flips the durable flag and pushes a fresh,
+  // role-filtered BoardState to each side, which updates our view via onBoardState.
+  const handleSetVisibility = useCallback((tokenId: string, hidden: boolean) => {
+    const socket = socketRef.current;
+    if (!socket) {
+      return;
+    }
+    void emitAction(socket, { type: 'setVisibility', token_id: tokenId, hidden });
+  }, []);
+
   // Make an attack: emit the intent and let the server roll + apply + broadcast.
   // The resulting `attack` Action (handled in onAction) updates HP and the log.
   const handleAttack = useCallback(
@@ -391,6 +403,7 @@ export default function MapBoard({
         onEndTurn={handleEndTurn}
       />
       {isHost && <HpControls tokens={tokens} onDamage={handleDamage} onHeal={handleHeal} />}
+      {isHost && <VisibilityControls tokens={tokens} onSetVisibility={handleSetVisibility} />}
       {controllableTokenIds.length > 0 && (
         <AttackControls
           tokens={tokens}
