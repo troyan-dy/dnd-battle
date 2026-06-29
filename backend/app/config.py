@@ -15,3 +15,8 @@ DATABASE_URL: str = os.getenv(
     "DATABASE_URL",
     "sqlite+aiosqlite:///./dnd_battle.db",
 )
+
+# Public origin of the player-facing frontend, used to build shareable invite
+# links (e.g. ``{APP_BASE_URL}/join/{token}``). No trailing slash. Override per
+# environment; the Vite dev server default keeps local end-to-end flows working.
+APP_BASE_URL: str = os.getenv("APP_BASE_URL", "http://localhost:5173").rstrip("/")
