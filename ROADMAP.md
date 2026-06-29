@@ -63,7 +63,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Wire rules engine into the attack/damage actions from Phase 5
 
 ## Phase 7 — Permissions, persistence, polish
-- [ ] Server-enforced permissions: player acts only on own token; host can do all
+- [x] Server-enforced permissions: player acts only on own token; host can do all
 - [ ] Persist room + board snapshots so a session survives a server restart
 - [ ] Fog of war / hidden tokens controllable by host
 - [ ] Error handling + user-facing messages on desync/disconnect
@@ -77,3 +77,10 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [ ] Spell area templates (cone/sphere/line)
 - [ ] Mobile/touch controls
 - [ ] Reconnect grace + spectator role
+- [ ] Host-only auth gate on HTTP room-CONFIG endpoints (place/update token, set
+      initiative, add player, upload map, revoke links) — currently unguarded.
+      NEEDS ARCHITECT + human sign-off: introduces HTTP authentication (reuse the
+      invite token as a `Authorization: Bearer` credential, assert role=host + room
+      match → 401/403) AND requires deciding how the host client persists/transmits
+      its secret token across navigation (e.g. the CharacterConfig route holds no
+      token). Touches auth + invite-link security → do not implement without sign-off.
