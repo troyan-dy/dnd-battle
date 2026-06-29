@@ -80,6 +80,17 @@ class AddPlayerResponse(BaseModel):
     invite_link: InviteLinkResponse
 
 
+class RevokeLinksResponse(BaseModel):
+    """Result of revoking a participant's invite link(s).
+
+    ``revoked`` is the number of *previously active* links that this call
+    disabled. The endpoint is idempotent: a second call revokes ``0`` more,
+    because already-revoked (or expired) links are left untouched.
+    """
+
+    revoked: int = Field(ge=0, description="How many active links this call revoked.")
+
+
 class ResolveInviteResponse(BaseModel):
     """Result of resolving an invite token -> who/where the link binds the visitor.
 

@@ -7,6 +7,7 @@ Postgres is needed. Drives the real ASGI app via httpx.ASGITransport.
 from __future__ import annotations
 
 import hashlib
+import uuid
 from collections.abc import AsyncIterator
 
 import httpx
@@ -250,3 +251,104 @@ async def test_add_player_rejects_nonpositive_hp(
         json={"character_name": "Aria", "max_hp": 0},
     )
     assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_revoke_disables_link_and_breaks_resolve(
+    client_and_factory: ClientFactory,
+) -> None:
+    """Revoking a participant's link sets revoked_at and makes resolve 404."""
+    client, factory = client_and_factory
+    room_id = await _create_room(client)
+    player = (
+        await client.post(
+            f"/rooms/{room_id}/participants",
+            json={"character_name": "Aria", "max_hp": 10},
+        )
+    ).json()
+    participant_id = player["participant_id"]
+    token = player["invite_link"]["token"]
+
+    # Link resolves before revocation.
+    assert (await client.get(f"/invites/{token}")).status_code == 200
+
+    resp = await client.post(f"/rooms/{room_id}/participants/{participant_id}/revoke")
+    assert resp.status_code == 200
+    assert resp.json()["revoked"] == 1
+
+    # The token no longer resolves (uniform 404, no enumeration oracle).
+    after = await client.get(f"/invites/{token}")
+    assert after.status_code == 404
+    assert after.json()["detail"] == "Invalid or expired invite link."
+
+    # revoked_at is persisted on the link row.
+    async with factory() as session:
+        invite = (
+            (
+                await session.execute(
+                    select(InviteLink).where(InviteLink.participant_id == uuid.UUID(participant_id))
+                )
+            )
+            .scalars()
+            .one()
+        )
+        assert invite.revoked_at is not None
+
+
+@pytest.mark.asyncio
+async def test_revoke_is_idempotent(
+    client_and_factory: ClientFactory,
+) -> None:
+    """A second revoke call disables 0 more links (idempotent)."""
+    client, _ = client_and_factory
+    room_id = await _create_room(client)
+    player = (
+        await client.post(
+            f"/rooms/{room_id}/participants",
+            json={"character_name": "Aria", "max_hp": 10},
+        )
+    ).json()
+    participant_id = player["participant_id"]
+
+    first = await client.post(f"/rooms/{room_id}/participants/{participant_id}/revoke")
+    assert first.status_code == 200
+    assert first.json()["revoked"] == 1
+
+    second = await client.post(f"/rooms/{room_id}/participants/{participant_id}/revoke")
+    assert second.status_code == 200
+    assert second.json()["revoked"] == 0
+
+
+@pytest.mark.asyncio
+async def test_revoke_unknown_participant_returns_404(
+    client_and_factory: ClientFactory,
+) -> None:
+    """Revoking links for a nonexistent participant fails with 404."""
+    client, _ = client_and_factory
+    room_id = await _create_room(client)
+    missing = "00000000-0000-0000-0000-000000000000"
+    resp = await client.post(f"/rooms/{room_id}/participants/{missing}/revoke")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_revoke_participant_in_other_room_returns_404(
+    client_and_factory: ClientFactory,
+) -> None:
+    """A participant cannot be revoked via a different room's id (cross-room guard)."""
+    client, _ = client_and_factory
+    room_a = await _create_room(client, "A")
+    room_b = await _create_room(client, "B")
+    player = (
+        await client.post(
+            f"/rooms/{room_a}/participants",
+            json={"character_name": "Aria", "max_hp": 10},
+        )
+    ).json()
+    participant_id = player["participant_id"]
+    token = player["invite_link"]["token"]
+
+    # Wrong room id -> 404 and the link stays active.
+    resp = await client.post(f"/rooms/{room_b}/participants/{participant_id}/revoke")
+    assert resp.status_code == 404
+    assert (await client.get(f"/invites/{token}")).status_code == 200

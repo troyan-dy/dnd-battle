@@ -14,10 +14,12 @@ incoming token and matches the unique ``token_hash``.
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import APP_BASE_URL
@@ -33,6 +35,7 @@ from app.schemas.room import (
     CreateRoomRequest,
     CreateRoomResponse,
     InviteLinkResponse,
+    RevokeLinksResponse,
     RoomSummary,
 )
 from app.security.tokens import generate_token, hash_token
@@ -136,3 +139,52 @@ async def add_player(
         role=player.role,
         invite_link=InviteLinkResponse(token=token, url=build_invite_url(token)),
     )
+
+
+@router.post(
+    "/{room_id}/participants/{participant_id}/revoke",
+    response_model=RevokeLinksResponse,
+)
+async def revoke_participant_links(
+    room_id: uuid.UUID,
+    participant_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> RevokeLinksResponse:
+    """Host action: revoke (disable) all active invite links for a participant.
+
+    Revocation is addressed by ``(room_id, participant_id)`` — never by the secret
+    plaintext token — so the host can invalidate a *player's* link without knowing
+    that player's secret (architect sign-off, Phase 1 link security).
+
+    Sets ``revoked_at`` on every currently-active link for the participant; after
+    this, :func:`app.api.invites.resolve_invite` returns the uniform 404 for those
+    tokens. The operation is **idempotent**: a second call revokes ``0`` more,
+    since already-revoked links are skipped. This is an explicit host action and
+    is therefore reconnect-safe (it is never triggered by a client reload).
+
+    Returns 404 if the room does not exist, or the participant does not exist /
+    does not belong to this room.
+    """
+    participant = await session.get(Participant, participant_id)
+    if participant is None or participant.room_id != room_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Participant not found.")
+
+    now = dt.datetime.now(dt.UTC)
+    active_links = (
+        (
+            await session.execute(
+                select(InviteLink).where(
+                    InviteLink.participant_id == participant_id,
+                    InviteLink.revoked_at.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for link in active_links:
+        link.revoked_at = now
+
+    await session.commit()
+
+    return RevokeLinksResponse(revoked=len(active_links))
