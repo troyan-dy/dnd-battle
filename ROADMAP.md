@@ -21,7 +21,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Data model: Room, Participant, InviteLink, Character (SQLAlchemy + Alembic)
 - [x] API: create room (host) → returns room id + host link
 - [x] API: generate per-participant unique invite links bound to a character slot
-- [ ] API: resolve invite link → `{ roomId, participantId, role, characterId }`
+- [x] API: resolve invite link → `{ roomId, participantId, role, characterId }`
 - [ ] Link security: unguessable tokens, single-purpose, revocable
 - [ ] Frontend: host "create room" screen; join screen via link
 

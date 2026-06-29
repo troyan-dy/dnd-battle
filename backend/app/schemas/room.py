@@ -78,3 +78,16 @@ class AddPlayerResponse(BaseModel):
     character_id: uuid.UUID
     role: ParticipantRole
     invite_link: InviteLinkResponse
+
+
+class ResolveInviteResponse(BaseModel):
+    """Result of resolving an invite token -> who/where the link binds the visitor.
+
+    Returned by ``GET /invites/{token}`` for a valid, active link. ``character_id``
+    is ``None`` for a host (the DM controls no single character slot).
+    """
+
+    room_id: uuid.UUID
+    participant_id: uuid.UUID
+    role: ParticipantRole
+    character_id: uuid.UUID | None

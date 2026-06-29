@@ -7,6 +7,7 @@ Usage (module-level app is importable by uvicorn):
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
+from app.api.invites import router as invites_router
 from app.api.rooms import router as rooms_router
 
 
@@ -36,6 +37,7 @@ def create_app() -> FastAPI:
     # Domain routers.
     # ---------------------------------------------------------------------------
     application.include_router(rooms_router)
+    application.include_router(invites_router)
 
     # ---------------------------------------------------------------------------
     # Future: mount socket.io sub-app, include versioned API routers, add CORS.
