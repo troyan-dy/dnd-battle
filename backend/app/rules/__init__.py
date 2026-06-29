@@ -23,6 +23,21 @@ conditions) extend.
 
 from __future__ import annotations
 
+from app.rules.abilities import (
+    MAX_ABILITY_SCORE,
+    MAX_LEVEL,
+    MAX_PROFICIENCY_BONUS,
+    MIN_ABILITY_SCORE,
+    MIN_LEVEL,
+    MIN_PROFICIENCY_BONUS,
+    Ability,
+    AbilityModifier,
+    AbilityScoreError,
+    LevelError,
+    ability_modifier,
+    format_modifier,
+    proficiency_bonus,
+)
 from app.rules.dice import (
     D20_SIDES,
     MAX_DICE_COUNT,
@@ -40,14 +55,27 @@ from app.rules.dice import (
 
 __all__ = [
     "D20_SIDES",
+    "MAX_ABILITY_SCORE",
     "MAX_DICE_COUNT",
     "MAX_DICE_SIDES",
     "MAX_FLAT_AMOUNT",
+    "MAX_LEVEL",
     "MAX_MODIFIER",
+    "MAX_PROFICIENCY_BONUS",
+    "MIN_ABILITY_SCORE",
+    "MIN_LEVEL",
+    "MIN_PROFICIENCY_BONUS",
+    "Ability",
+    "AbilityModifier",
+    "AbilityScoreError",
     "DiceExpressionError",
     "DiceRoll",
+    "LevelError",
     "ParsedDice",
+    "ability_modifier",
+    "format_modifier",
     "parse_dice",
+    "proficiency_bonus",
     "roll_d20",
     "roll_dice",
     "roll_die",

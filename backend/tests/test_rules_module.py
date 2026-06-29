@@ -77,7 +77,7 @@ def test_rules_modules_import_only_pure_layers() -> None:
 def test_rules_package_only_contains_rules_modules() -> None:
     # No accidental sub-packages dragging in heavier dependencies.
     discovered = sorted(info.name for info in pkgutil.iter_modules([str(_RULES_DIR)]))
-    assert discovered == ["dice"], discovered
+    assert discovered == ["abilities", "dice"], discovered
 
 
 def test_public_api_surface_is_importable_from_package() -> None:
