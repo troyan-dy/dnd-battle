@@ -29,6 +29,13 @@ vi.mock('../api/client', () => ({
   listCharacters: vi.fn(() => Promise.resolve([])),
 }));
 
+// Don't open a real Socket.IO connection in jsdom; hand back a fake socket.
+const fakeSocket = vi.hoisted(() => ({ disconnect: vi.fn() }));
+vi.mock('../realtime/connection', () => ({
+  createBoardSocket: vi.fn(() => fakeSocket),
+  emitAction: vi.fn(() => Promise.resolve({ ok: true })),
+}));
+
 // Drive MapBoard's load state directly.
 const imageState = vi.hoisted(() => ({
   current: { image: null, status: 'loading' } as ImageElementState,
@@ -52,7 +59,7 @@ async function flushHydrate() {
 describe('MapBoard', () => {
   it('shows a loading message while the map is loading', async () => {
     imageState.current = { image: null, status: 'loading' };
-    render(<MapBoard roomId="room-1" />);
+    render(<MapBoard roomId="room-1" token="tok-1" />);
     expect(screen.getByRole('status')).toHaveTextContent(/loading map/i);
     expect(screen.queryByTestId('stage')).toBeNull();
     await flushHydrate();
@@ -60,7 +67,7 @@ describe('MapBoard', () => {
 
   it('shows a no-map message on error', async () => {
     imageState.current = { image: null, status: 'error' };
-    render(<MapBoard roomId="room-1" />);
+    render(<MapBoard roomId="room-1" token="tok-1" />);
     expect(screen.getByRole('alert')).toHaveTextContent(/no map/i);
     expect(screen.queryByTestId('stage')).toBeNull();
     await flushHydrate();
@@ -74,7 +81,7 @@ describe('MapBoard', () => {
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
 
-    render(<MapBoard roomId="room-1" />);
+    render(<MapBoard roomId="room-1" token="tok-1" />);
 
     expect(screen.getByTestId('stage')).toBeInTheDocument();
     const konvaImage = screen.getByTestId('konva-image');

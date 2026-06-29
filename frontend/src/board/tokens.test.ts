@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hpBarColor, hpFraction, joinTokens, tokenRect } from './tokens';
+import { hpBarColor, hpFraction, joinTokens, tokenRect, worldToCell } from './tokens';
 import type { GridConfig } from './grid';
 import type { CharacterResponse, TokenResponse } from '../api/types';
 
@@ -45,6 +45,23 @@ describe('tokenRect', () => {
   it('treats a non-positive size as a single cell', () => {
     const rect = tokenRect(token({ size: 0 }), grid);
     expect(rect.width).toBe(50);
+  });
+});
+
+describe('worldToCell', () => {
+  it('is the inverse of tokenRect placement (snaps a cell corner back to its index)', () => {
+    const rect = tokenRect(token({ x: 2, y: 3 }), grid);
+    expect(worldToCell(rect.x, rect.y, grid)).toEqual({ x: 2, y: 3 });
+  });
+
+  it('rounds a point near a cell to that cell', () => {
+    // Cell 2 starts at world 110 (offset 10 + 2*50); +24 still rounds to 2, +26 to 3.
+    expect(worldToCell(134, 20, grid)).toEqual({ x: 2, y: 0 });
+    expect(worldToCell(136, 20, grid)).toEqual({ x: 3, y: 0 });
+  });
+
+  it('clamps negative cells to 0 (server grid lower bound)', () => {
+    expect(worldToCell(-200, -200, grid)).toEqual({ x: 0, y: 0 });
   });
 });
 

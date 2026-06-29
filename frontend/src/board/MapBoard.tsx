@@ -1,28 +1,52 @@
-// Renders a room's encounter map on a Konva stage with pan + zoom.
+// Renders a room's encounter map on a Konva stage with pan + zoom, plus the
+// live tokens — synced in real time over Socket.IO.
 //
-// Phase 2 scope: this is PURELY LOCAL rendering — the viewport syncs nothing to
-// the server yet (see ROADMAP "Board viewport syncs nothing yet"). The map image
-// is the only thing on the board for now; grid and tokens land in later tasks.
+// Realtime (Phase 4): the board opens a Socket.IO connection authenticated by
+// this client's invite token, receives the full BoardState on (re)join, and
+// applies each broadcast Action. A client may drag its own token(s): the move is
+// applied OPTIMISTICALLY for instant feedback, then reconciled against the
+// server's authoritative broadcast (CLAUDE.md rule 5) — the token snaps to the
+// server position on mismatch, and a rejected intent rolls the move back.
+// Reconciliation logic is isolated in `./reconcile` (pure, unit-tested).
 //
 // Interaction:
-//   - drag anywhere to pan (the stage itself is draggable)
+//   - drag anywhere on empty board to pan (the stage itself is draggable)
 //   - mouse wheel / trackpad scroll to zoom toward the cursor
-// The stage carries the transform (scale + offset); the image is drawn at its
-// natural size at world origin.
+//   - drag your own token to move it (grid-snapped)
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image as KonvaImage, Layer, Stage } from 'react-konva';
 import type Konva from 'konva';
+import type { Socket } from 'socket.io-client';
 import { listCharacters, listTokens, mapImageUrl } from '../api/client';
+import type { CharacterResponse, TokenResponse } from '../api/types';
+import { createBoardSocket, emitAction } from '../realtime/connection';
 import GridLayer from './GridLayer';
 import { DEFAULT_GRID, MIN_CELL_SIZE, type GridConfig } from './grid';
 import TokenLayer from './TokenLayer';
-import { joinTokens, type PlacedToken } from './tokens';
+import { joinTokens } from './tokens';
+import {
+  applyAction,
+  beginOptimisticMove,
+  displayTokens,
+  EMPTY_BOARD,
+  fromBoardState,
+  fromTokens,
+  rollbackMove,
+  type ReconcilableBoard,
+} from './reconcile';
 import { useImageElement } from './useImageElement';
 import { fitViewport, IDENTITY_VIEWPORT, zoomAtPoint, type Viewport } from './viewport';
 
 export interface MapBoardProps {
+  /** Room whose board to render. */
   roomId: string;
+  /** This client's invite token — the credential used to join the realtime room. */
+  token: string;
+  /** Host controls every token; a player controls only its bound character's token. */
+  isHost?: boolean;
+  /** The character this (player) client may move; null/undefined for none. */
+  controllableCharacterId?: string | null;
 }
 
 /** Track a DOM element's content-box size, updating on resize. */
@@ -52,33 +76,39 @@ function useElementSize(): [
   return [ref, size];
 }
 
-export default function MapBoard({ roomId }: MapBoardProps) {
+export default function MapBoard({
+  roomId,
+  token,
+  isHost = false,
+  controllableCharacterId = null,
+}: MapBoardProps) {
   const [containerRef, size] = useElementSize();
   const { image, status } = useImageElement(mapImageUrl(roomId));
   const [viewport, setViewport] = useState<Viewport>(IDENTITY_VIEWPORT);
   const [grid, setGrid] = useState<GridConfig>(DEFAULT_GRID);
   const [showGrid, setShowGrid] = useState(true);
-  const [tokens, setTokens] = useState<PlacedToken[]>([]);
+  const [board, setBoard] = useState<ReconcilableBoard>(EMPTY_BOARD);
+  const [characters, setCharacters] = useState<CharacterResponse[]>([]);
+  const socketRef = useRef<Socket | null>(null);
 
   const updateGrid = (patch: Partial<GridConfig>) => setGrid((g) => ({ ...g, ...patch }));
 
-  // Hydrate the board's tokens (+ their character display data) for this room.
-  // A plain idempotent read, so reloading the link re-fetches the current
-  // placement; realtime updates arrive in Phase 4. Stale results are ignored.
+  // Initial REST hydrate of tokens (+ character display data). A plain idempotent
+  // read so the board paints immediately; the realtime `boardState` push below
+  // then takes over as the authoritative source. Stale results are ignored.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const [placed, characters] = await Promise.all([
-          listTokens(roomId),
-          listCharacters(roomId),
-        ]);
+        const [placed, chars] = await Promise.all([listTokens(roomId), listCharacters(roomId)]);
         if (!cancelled) {
-          setTokens(joinTokens(placed, characters));
+          setCharacters(chars);
+          setBoard(fromTokens(placed));
         }
       } catch {
         if (!cancelled) {
-          setTokens([]);
+          setCharacters([]);
+          setBoard(EMPTY_BOARD);
         }
       }
     })();
@@ -86,6 +116,53 @@ export default function MapBoard({ roomId }: MapBoardProps) {
       cancelled = true;
     };
   }, [roomId]);
+
+  // Open the realtime board connection. On (re)join the server pushes the FULL
+  // BoardState (reconnect-safe); each broadcast Action is applied authoritatively.
+  useEffect(() => {
+    const socket = createBoardSocket(token, {
+      onBoardState: (state) => {
+        setCharacters(state.characters);
+        setBoard(fromBoardState(state));
+      },
+      onAction: (action) => {
+        setBoard((b) => applyAction(b, action));
+      },
+    });
+    socketRef.current = socket;
+    return () => {
+      socketRef.current = null;
+      socket.disconnect();
+    };
+  }, [token]);
+
+  // Whether this client may drag a given token (server still enforces this; the
+  // UI just avoids offering moves it knows will be rejected).
+  const canDrag = useCallback(
+    (t: TokenResponse) =>
+      isHost || (controllableCharacterId != null && t.character_id === controllableCharacterId),
+    [isHost, controllableCharacterId],
+  );
+
+  // A token was dropped on a new cell: apply optimistically, emit the intent, and
+  // reconcile — roll back if the server rejects it; a successful broadcast arrives
+  // via onAction and replaces the optimistic position (CLAUDE.md rule 5).
+  const handleTokenMove = useCallback((tokenId: string, cell: { x: number; y: number }) => {
+    setBoard((b) => beginOptimisticMove(b, tokenId, cell.x, cell.y));
+    const socket = socketRef.current;
+    if (!socket) {
+      return;
+    }
+    void emitAction(socket, { type: 'move', token_id: tokenId, x: cell.x, y: cell.y }).then(
+      (ack) => {
+        if (!ack.ok) {
+          setBoard((b) => rollbackMove(b, tokenId));
+        }
+      },
+    );
+  }, []);
+
+  const tokens = joinTokens(displayTokens(board), characters);
 
   // Frame the map to fit once it (and the container) are known.
   useEffect(() => {
@@ -146,7 +223,7 @@ export default function MapBoard({ roomId }: MapBoardProps) {
                 scale={viewport.scale}
               />
             )}
-            <TokenLayer tokens={tokens} config={grid} />
+            <TokenLayer tokens={tokens} config={grid} canDrag={canDrag} onMove={handleTokenMove} />
           </Layer>
         </Stage>
       )}

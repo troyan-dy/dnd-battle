@@ -5,18 +5,26 @@
 // its bound character's name, a live HP bar, and any current conditions — the
 // display data the host/players need to read the encounter at a glance.
 //
-// Still PURELY LOCAL: this draws whatever the latest fetch returned; realtime
-// updates land in Phase 4.
+// A client may DRAG a token it controls; on drop the token's world position is
+// snapped back to a grid cell and reported via `onMove` (the parent emits the
+// move intent and reconciles against the server broadcast). The server remains
+// authoritative — this only offers drags `canDrag` allows.
 
 import { Group, Rect, Text } from 'react-konva';
+import type Konva from 'konva';
 import type { GridConfig } from './grid';
-import { hpBarColor, hpFraction, tokenRect, type PlacedToken } from './tokens';
+import type { TokenResponse } from '../api/types';
+import { hpBarColor, hpFraction, tokenRect, worldToCell, type PlacedToken } from './tokens';
 
 export interface TokenLayerProps {
   /** Tokens already joined to their character display data. */
   tokens: readonly PlacedToken[];
   /** Same grid the overlay uses, so tokens snap to cells. */
   config: GridConfig;
+  /** Whether this client may drag a given token (default: none are draggable). */
+  canDrag?: (token: TokenResponse) => boolean;
+  /** Called with the target grid cell when a draggable token is dropped. */
+  onMove?: (tokenId: string, cell: { x: number; y: number }) => void;
 }
 
 const BODY_FILL = 'rgba(56, 139, 253, 0.65)';
@@ -25,7 +33,7 @@ const LABEL_FILL = '#ffffff';
 const LABEL_BG = 'rgba(0, 0, 0, 0.55)';
 const HP_TRACK = 'rgba(0, 0, 0, 0.55)';
 
-export default function TokenLayer({ tokens, config }: TokenLayerProps) {
+export default function TokenLayer({ tokens, config, canDrag, onMove }: TokenLayerProps) {
   return (
     <>
       {tokens.map(({ token, character }) => {
@@ -35,9 +43,25 @@ export default function TokenLayer({ tokens, config }: TokenLayerProps) {
         const barHeight = Math.max(3, config.cellSize * 0.1);
         const fraction = hpFraction(character.current_hp, character.max_hp);
         const conditions = character.conditions.length > 0 ? character.conditions.join(', ') : '';
+        const draggable = canDrag?.(token) ?? false;
+
+        // On drop, Konva offsets the Group by the drag delta. Convert the new
+        // world top-left back to a grid cell, then reset the Group offset (React
+        // re-renders the token at its new optimistic cell).
+        const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
+          const node = e.target;
+          const cell = worldToCell(rect.x + node.x(), rect.y + node.y(), config);
+          node.position({ x: 0, y: 0 });
+          onMove?.(token.id, cell);
+        };
 
         return (
-          <Group key={token.id} listening={false}>
+          <Group
+            key={token.id}
+            listening={draggable}
+            draggable={draggable}
+            onDragEnd={draggable ? handleDragEnd : undefined}
+          >
             {/* Footprint body */}
             <Rect
               x={rect.x}

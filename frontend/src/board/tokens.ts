@@ -31,6 +31,24 @@ export function tokenRect(
   };
 }
 
+/**
+ * Inverse of {@link tokenRect}'s placement: snap a world-coordinate point to the
+ * nearest grid cell index. Used when a dragged token is dropped to turn its new
+ * world position back into the integer `(x, y)` cell the server stores. Clamped to
+ * non-negative indices to match the server's grid bounds (GRID_COORD_MIN = 0).
+ */
+export function worldToCell(
+  worldX: number,
+  worldY: number,
+  grid: GridConfig,
+): { x: number; y: number } {
+  const cell = grid.cellSize > 0 ? grid.cellSize : 1;
+  return {
+    x: Math.max(0, Math.round((worldX - grid.offsetX) / cell)),
+    y: Math.max(0, Math.round((worldY - grid.offsetY) / cell)),
+  };
+}
+
 /** A token joined with the character it is bound to (display data resolved). */
 export interface PlacedToken {
   token: TokenResponse;

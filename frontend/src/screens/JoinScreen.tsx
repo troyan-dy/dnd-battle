@@ -84,7 +84,12 @@ export default function JoinScreen({ token }: { token: string }) {
   return (
     <main className="board-view" data-role={role}>
       <div className="board-view__board">
-        <MapBoard roomId={room_id} />
+        <MapBoard
+          roomId={room_id}
+          token={token}
+          isHost={role === 'host'}
+          controllableCharacterId={character_id}
+        />
       </div>
       {isPlayer ? (
         <CharacterPanel roomId={room_id} characterId={character_id} />
