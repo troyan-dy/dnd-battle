@@ -44,7 +44,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Server validates intents (permissions + bounds) before broadcasting
 - [x] Broadcast resulting Action to all participants in the room
 - [x] Optimistic move on client + reconcile to server broadcast
-- [ ] Reconnect test: reload a player link mid-encounter, state restores
+- [x] Reconnect test: reload a player link mid-encounter, state restores
 
 ## Phase 5 — Combat actions (visible to all)
 - [ ] Move token with grid snapping + distance measurement (feet)

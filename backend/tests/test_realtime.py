@@ -494,6 +494,86 @@ async def test_handle_action_seq_is_monotonic_per_room(seeded: SeededBoard) -> N
     assert ack2["seq"] == 1
 
 
+async def test_reload_player_link_mid_encounter_restores_state(seeded: SeededBoard) -> None:
+    """Reloading a player link mid-encounter resyncs the FULL post-action board.
+
+    Models a player who joins, sees the board, then RELOADS its link (a brand-new
+    connection) after the host has moved a token AND damaged the character. The fresh
+    join must push the UPDATED authoritative BoardState — the moved token cell and the
+    reduced HP — proving reconnect-safe restore (CLAUDE.md rule 2): the reconnecting
+    client never has to have seen the intervening Actions, the durable rows are the
+    source of truth and the snapshot is rebuilt on every (re)join.
+    """
+    sequencer = RoomSequencer()
+    token_id = await _seeded_token_id(seeded)
+
+    # 1. Player joins initially and sees the token at its starting cell.
+    player_sio = _fake_sio()
+    first_ack = await handle_join(
+        player_sio, "p-sid1", {"token": seeded.player_token}, session_factory=seeded.factory
+    )
+    assert first_ack["ok"] is True
+    args, _ = player_sio.emit.await_args
+    assert args[0] == "boardState"
+    assert (args[1]["tokens"][0]["x"], args[1]["tokens"][0]["y"]) == (3, 4)
+    assert args[1]["characters"][0]["current_hp"] == 20
+
+    # 2. Host moves the token AND damages the character mid-encounter
+    #    (durable apply + broadcast on each).
+    host_sio = _fake_sio()
+    _joined(
+        host_sio,
+        JoinedIdentity(
+            room_id=seeded.room_id,
+            role=ParticipantRole.host,
+            participant_id=uuid.uuid4(),
+            character_id=None,
+        ),
+    )
+    move_ack = await handle_action(
+        host_sio,
+        "h-sid1",
+        _move_intent(token_id, 7, 8),
+        sequencer=sequencer,
+        session_factory=seeded.factory,
+    )
+    damage_ack = await handle_action(
+        host_sio,
+        "h-sid1",
+        {"version": 1, "payload": {"type": "damage", "token_id": str(token_id), "amount": 5}},
+        sequencer=sequencer,
+        session_factory=seeded.factory,
+    )
+    assert move_ack["ok"] is True
+    assert damage_ack["ok"] is True
+
+    # 3. The player reloads its link on a fresh connection (simulated reconnect).
+    reconnect_sio = _fake_sio()
+    ack = await handle_join(
+        reconnect_sio, "p-sid2", {"token": seeded.player_token}, session_factory=seeded.factory
+    )
+
+    assert ack["ok"] is True
+    assert ack["roomId"] == str(seeded.room_id)
+    assert ack["participantId"] == str(seeded.player_participant_id)
+
+    # The fresh boardState reflects the mid-encounter changes, not the stale start.
+    reconnect_sio.emit.assert_awaited_once()
+    args, kwargs = reconnect_sio.emit.await_args
+    assert args[0] == "boardState"
+    assert kwargs == {"to": "p-sid2"}
+    board = args[1]
+    assert len(board["tokens"]) == 1
+    assert (board["tokens"][0]["x"], board["tokens"][0]["y"]) == (7, 8)
+    assert board["characters"][0]["current_hp"] == 15  # 20 - 5
+
+    # Identity is re-bound on reconnect so the player can keep acting after reload.
+    reconnect_sio.save_session.assert_awaited_once()
+    identity = reconnect_sio.save_session.await_args.args[1]
+    assert isinstance(identity, JoinedIdentity)
+    assert identity.participant_id == seeded.player_participant_id
+
+
 def test_room_sequencer_is_monotonic_and_per_room() -> None:
     sequencer = RoomSequencer()
     assert sequencer.next_seq("a") == 0
