@@ -1,0 +1,118 @@
+"""Server-side validation of client Action intents (permissions + bounds).
+
+CLAUDE.md rule 1 (server is authoritative) + rule 3 (permissions): a client sends
+an :class:`ActionIntent`; before the server broadcasts the resulting
+:class:`Action`, it must validate that intent against the current board state and
+the actor's permissions. This module is that authoritative gate — a pure,
+fully-unit-tested function isolated from the transport and UI layers.
+
+What is validated WHERE:
+
+* Protocol ``version``, coordinate / damage-amount bounds and unknown action types
+  are rejected at **parse** time by :class:`ActionIntent` and the payload
+  discriminated union (:mod:`app.schemas.action`).
+* This module adds the **state-aware** + **permission** checks that need the live
+  board:
+
+  - the referenced token actually exists and belongs to the *actor's* room;
+  - a ``player`` may only target a token bound to their OWN character; a ``host``
+    may target any token in the room (CLAUDE.md rule 3);
+  - ``mark`` / ``endTurn`` carry no token, so any authenticated participant in the
+    room may issue them (whose-turn enforcement arrives with the Phase 5 initiative
+    tracker).
+
+On rejection a :class:`IntentValidationError` carrying a human-readable reason is
+raised; the transport layer (the next Phase 4 task) maps it to an error ack and
+does NOT broadcast. On success the validated :class:`ActionPayload` is returned,
+ready for the server to stamp into a broadcast :class:`Action`.
+
+This task deliberately does NOT introduce a live mutable in-memory BoardState or
+any broadcasting: it validates against the durable :class:`Token` rows — the same
+source of truth :func:`app.services.board.build_board_state` reads. Mutation and
+broadcast are the next Phase 4 tasks.
+"""
+
+from __future__ import annotations
+
+import uuid
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.enums import ParticipantRole
+from app.models.token import Token
+from app.schemas.action import (
+    ActionIntent,
+    ActionPayload,
+    DamagePayload,
+    MovePayload,
+)
+
+# Uniform rejection messages. Kept generic so a player cannot probe the board for
+# tokens they do not own (the "not on this board" vs "not yours" distinction is
+# intentionally coarse to avoid leaking which tokens exist).
+_TOKEN_NOT_ON_BOARD = "Target token is not on this board."
+_TOKEN_NOT_OWNED = "You can only act on your own token."
+
+
+class IntentValidationError(Exception):
+    """A client intent failed permission / state validation; do NOT broadcast it."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+async def validate_intent(
+    session: AsyncSession,
+    *,
+    room_id: uuid.UUID,
+    role: ParticipantRole,
+    character_id: uuid.UUID | None,
+    intent: ActionIntent,
+) -> ActionPayload:
+    """Validate an authenticated client's intent against state + permissions.
+
+    ``room_id`` / ``role`` / ``character_id`` come from the server-authenticated
+    join (the resolved invite), never from the client payload. Returns the
+    validated :class:`ActionPayload` on success; raises :class:`IntentValidationError`
+    (with a human-readable ``reason``) on any permission / state violation.
+    """
+    payload = intent.payload
+
+    # Token-targeting actions must reference a token in the actor's room that the
+    # actor is permitted to act on. Non-token actions (mark, endTurn) need neither.
+    if isinstance(payload, (MovePayload, DamagePayload)):
+        await _authorize_token_target(
+            session,
+            room_id=room_id,
+            role=role,
+            character_id=character_id,
+            token_id=payload.token_id,
+        )
+
+    return payload
+
+
+async def _authorize_token_target(
+    session: AsyncSession,
+    *,
+    room_id: uuid.UUID,
+    role: ParticipantRole,
+    character_id: uuid.UUID | None,
+    token_id: uuid.UUID,
+) -> None:
+    """Ensure the token exists in ``room_id`` and the actor may act on it.
+
+    Host may act on any token in their room; a player only on the token bound to
+    their own character. Raises :class:`IntentValidationError` otherwise.
+    """
+    token = await session.get(Token, token_id)
+    if token is None or token.room_id != room_id:
+        raise IntentValidationError(_TOKEN_NOT_ON_BOARD)
+
+    if role == ParticipantRole.host:
+        return
+
+    # Player: the token must be bound to this participant's own character.
+    if character_id is None or token.character_id != character_id:
+        raise IntentValidationError(_TOKEN_NOT_OWNED)
