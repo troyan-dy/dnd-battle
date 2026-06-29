@@ -38,6 +38,26 @@ run-loop.sh                # the continuous loop (headless)
     roadmap is fully checked, or after `MAX_CYCLES`.
   - Tune with env vars, e.g. `SLEEP_SECS=60 MAX_CYCLES=50 ./run-loop.sh`.
 
+## Run the app (Docker)
+Run the whole thing — Postgres, backend (FastAPI + Socket.IO), and the frontend
+(SPA served by nginx, which reverse-proxies the API + realtime so it's all one
+origin) — with one command:
+
+```bash
+cp .env.example .env          # optional; sensible defaults work out of the box
+docker compose up --build
+```
+
+Then open **http://localhost:8080**. The backend migrates the database on start.
+Postgres data and uploaded maps persist in a local **`./.docker-data/`** folder
+in the project (git-ignored), so the data lives with the repo and survives
+restarts.
+
+- Change the port if 8080 is taken: `APP_PORT=8090 APP_BASE_URL=http://localhost:8090 docker compose up --build` (keep both in sync — `APP_BASE_URL` is baked into invite links and the realtime CORS allowlist).
+- Just the infra (to run the backend on your host instead): `docker compose up postgres`.
+- Optional Redis (only when scaling past one server process): `docker compose --profile cache up`.
+- Tear down: `docker compose down`. To also wipe the data, delete the local folder: `rm -rf ./.docker-data`.
+
 ## How it stays sane
 - One task per cycle, each a small reviewable commit → `git log` is your audit trail.
 - The orchestrator never invents architecture; risky areas (auth, invite-link

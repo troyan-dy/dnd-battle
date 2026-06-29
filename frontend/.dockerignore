@@ -1,0 +1,15 @@
+# Build fresh inside the image; never copy host-only artifacts into the context.
+node_modules/
+dist/
+
+# Playwright e2e artifacts and local caches.
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+.last-run.json
+.ruff_cache/
+
+# Docker files themselves don't belong in the image.
+Dockerfile
+.dockerignore

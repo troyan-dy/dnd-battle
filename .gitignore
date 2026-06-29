@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local docker compose data (Postgres + uploaded maps bind mounts).
+.docker-data/

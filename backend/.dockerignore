@@ -1,0 +1,17 @@
+# Keep the build context small and reproducible: never ship host-only artifacts.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.python-version
+
+# Local sqlite databases and uploaded maps (runtime state, not build inputs).
+*.db
+*.db-journal
+var/
+
+# Docker files themselves don't belong in the image.
+Dockerfile
+.dockerignore
