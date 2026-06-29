@@ -1,12 +1,13 @@
 // Pure formatting helpers for the shared combat log (Phase 5).
 //
 // Kept free of React/Konva so the log math/format is unit-testable in isolation.
-// An attack the server broadcasts (an `attack` Action) becomes a human-readable
-// line everyone in the room sees. The full shared combat-log PANEL (more entry
-// types, scrolling, etc.) is the next Phase-5 task; this module covers the attack
-// entries this task introduces.
+// Every board change the server BROADCASTS (a move/mark/damage/heal/attack/endTurn
+// Action) becomes a human-readable line everyone in the room sees in the same
+// order. The log is transient/client-built (like pings) — a reconnecting client
+// rebuilds from the boardState push and only sees subsequent lines; it is NOT a
+// durable, replayable transcript (that would be an architect-gated change).
 
-import type { Action, AttackResultPayload } from '../api/types';
+import type { Action, AttackResultPayload, BroadcastActionPayload } from '../api/types';
 
 /** Keep at most this many log lines client-side (newest kept, oldest dropped). */
 export const MAX_LOG_ENTRIES = 50;
@@ -14,14 +15,11 @@ export const MAX_LOG_ENTRIES = 50;
 /** A single combat-log entry, keyed by the broadcast Action's id. */
 export interface CombatLogEntry {
   id: string;
-  payload: AttackResultPayload;
+  payload: BroadcastActionPayload;
 }
 
-/** Build a log entry from a broadcast Action, or null for any non-attack action. */
-export function attackLogEntry(action: Action): CombatLogEntry | null {
-  if (action.payload.type !== 'attack') {
-    return null;
-  }
+/** Build a log entry from any broadcast Action. */
+export function logEntry(action: Action): CombatLogEntry {
   return { id: action.id, payload: action.payload };
 }
 
@@ -40,7 +38,7 @@ function formatBonus(bonus: number): string {
  * Format an attack result as a readable line. `nameOf` resolves a token id to a
  * display name (its character's name), falling back to a placeholder.
  */
-export function formatAttackEntry(
+function formatAttackEntry(
   payload: AttackResultPayload,
   nameOf: (tokenId: string) => string,
 ): string {
@@ -51,4 +49,30 @@ export function formatAttackEntry(
     `d20 (${payload.attack_roll}) ${formatBonus(payload.attack_bonus)} = ${payload.attack_total}; ` +
     `${payload.damage} → ${payload.damage_total} damage`
   );
+}
+
+/**
+ * Format any broadcast payload as a readable combat-log line. `nameOf` resolves a
+ * token id to a display name (its character's name), falling back to a placeholder.
+ */
+export function formatLogEntry(
+  payload: BroadcastActionPayload,
+  nameOf: (tokenId: string) => string,
+): string {
+  switch (payload.type) {
+    case 'move':
+      return `${nameOf(payload.token_id)} moves to (${payload.x}, ${payload.y})`;
+    case 'mark': {
+      const where = `(${payload.x}, ${payload.y})`;
+      return payload.label ? `Ping "${payload.label}" at ${where}` : `Ping at ${where}`;
+    }
+    case 'damage':
+      return `${nameOf(payload.token_id)} takes ${payload.amount} damage`;
+    case 'heal':
+      return `${nameOf(payload.token_id)} heals ${payload.amount} HP`;
+    case 'attack':
+      return formatAttackEntry(payload, nameOf);
+    case 'endTurn':
+      return 'Turn ended';
+  }
 }

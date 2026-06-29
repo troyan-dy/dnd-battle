@@ -1,9 +1,11 @@
-// Shared combat-log overlay (Phase 5): renders the attack lines the server has
-// broadcast so EVERYONE in the room sees the same log. Names are resolved from the
-// current tokens at render time, so the log stays correct regardless of when an
-// entry was recorded.
+// Shared combat-log overlay (Phase 5): renders the lines the server has broadcast
+// (move/mark/damage/heal/attack/endTurn) so EVERYONE in the room sees the same log
+// in the same order. Names are resolved from the current tokens at render time, so
+// the log stays correct regardless of when an entry was recorded. The panel
+// scrolls and auto-sticks to the newest line.
 
-import { type CombatLogEntry, formatAttackEntry } from './combatLog';
+import { useEffect, useRef } from 'react';
+import { type CombatLogEntry, formatLogEntry } from './combatLog';
 import type { PlacedToken } from './tokens';
 
 export interface CombatLogPanelProps {
@@ -16,6 +18,16 @@ export interface CombatLogPanelProps {
 const UNKNOWN_NAME = 'Unknown';
 
 export default function CombatLogPanel({ entries, tokens }: CombatLogPanelProps) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Keep the newest line in view as entries arrive.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [entries]);
+
   if (entries.length === 0) {
     return null;
   }
@@ -24,10 +36,18 @@ export default function CombatLogPanel({ entries, tokens }: CombatLogPanelProps)
     tokens.find((t) => t.token.id === tokenId)?.character.name ?? UNKNOWN_NAME;
 
   return (
-    <div className="map-board__combat-log" role="log" aria-label="Combat log">
+    <div
+      ref={scrollRef}
+      className="map-board__combat-log"
+      role="log"
+      aria-label="Combat log"
+      aria-live="polite"
+    >
       <ul>
         {entries.map((entry) => (
-          <li key={entry.id}>{formatAttackEntry(entry.payload, nameOf)}</li>
+          <li key={entry.id} data-action-type={entry.payload.type}>
+            {formatLogEntry(entry.payload, nameOf)}
+          </li>
         ))}
       </ul>
     </div>

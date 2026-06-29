@@ -65,4 +65,21 @@ describe('CombatLogPanel', () => {
       'Goblin attacks Aria: d20 (12) +2 = 14; 1d6 → 4 damage',
     );
   });
+
+  it('renders mixed entry types (move / damage / endTurn) in order', () => {
+    const tokens = [placed('ta', 'ca', 'Goblin'), placed('tb', 'cb', 'Aria')];
+    const entries: CombatLogEntry[] = [
+      { id: 'm1', payload: { type: 'move', token_id: 'ta', x: 2, y: 3 } },
+      { id: 'd1', payload: { type: 'damage', token_id: 'tb', amount: 6 } },
+      { id: 't1', payload: { type: 'endTurn' } },
+    ];
+    render(<CombatLogPanel entries={entries} tokens={tokens} />);
+    const items = screen.getAllByRole('listitem');
+    expect(items.map((li) => li.textContent)).toEqual([
+      'Goblin moves to (2, 3)',
+      'Aria takes 6 damage',
+      'Turn ended',
+    ]);
+    expect(items[0]).toHaveAttribute('data-action-type', 'move');
+  });
 });

@@ -35,7 +35,7 @@ import AttackControls from './AttackControls';
 import CombatLogPanel from './CombatLogPanel';
 import InitiativeTracker from './InitiativeTracker';
 import { applyHpAction } from './hp';
-import { appendLogEntry, attackLogEntry, type CombatLogEntry } from './combatLog';
+import { appendLogEntry, logEntry, type CombatLogEntry } from './combatLog';
 import { advanceInitiative, EMPTY_INITIATIVE } from './initiative';
 import { addMark, markFromAction, pruneExpired, type BoardMark } from './marks';
 import { joinTokens, worldToCell } from './tokens';
@@ -155,6 +155,9 @@ export default function MapBoard({
         setInitiative(state.initiative);
       },
       onAction: (action) => {
+        // Every broadcast action becomes a shared combat-log line (same order for
+        // everyone). The type-specific board state updates follow below.
+        setLog((entries) => appendLogEntry(entries, logEntry(action)));
         if (action.payload.type === 'mark') {
           const now = Date.now();
           const mark = markFromAction(action, now);
@@ -192,10 +195,6 @@ export default function MapBoard({
                 amount: payload.damage_total,
               }),
             );
-          }
-          const entry = attackLogEntry(action);
-          if (entry) {
-            setLog((entries) => appendLogEntry(entries, entry));
           }
           return;
         }
