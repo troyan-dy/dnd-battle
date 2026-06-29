@@ -1,0 +1,48 @@
+# docker-compose.yml — local dev infra for the D&D battler.
+#
+# Default `docker compose up` starts ONLY Postgres (authoritative persistence).
+# Redis is optional (live BoardState lives in-memory per room; Redis is only
+# needed when scaling past one server process) and is gated behind the "cache"
+# profile:  docker compose --profile cache up
+#
+# Values are read from the local `.env` file (see `.env.example`).
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: dnd-battle-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dnd}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dnd}
+      POSTGRES_DB: ${POSTGRES_DB:-dnd_battle}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - dnd_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dnd} -d ${POSTGRES_DB:-dnd_battle}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7
+    container_name: dnd-battle-redis
+    restart: unless-stopped
+    profiles: ["cache"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - dnd_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  dnd_pgdata:
+  dnd_redisdata:

@@ -13,7 +13,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Backend: uv project, FastAPI app, `/health` endpoint, uvicorn run script
 - [x] Backend: pytest + pytest-asyncio wired, one passing smoke test
 - [x] Frontend: Vite app boots, Vitest wired, one passing smoke test
-- [ ] Docker-compose for Postgres (+ optional Redis); `.env.example`
+- [x] Docker-compose for Postgres (+ optional Redis); `.env.example`
 - [ ] Lint/format: ruff + mypy (backend), eslint + prettier (frontend)
 - [ ] CI script that runs lint + tests for both packages
 
