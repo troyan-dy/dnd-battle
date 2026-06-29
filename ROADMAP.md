@@ -67,7 +67,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Persist room + board snapshots so a session survives a server restart
 - [x] Fog of war / hidden tokens controllable by host
 - [x] Error handling + user-facing messages on desync/disconnect
-- [!] e2e Playwright: two browser clients, one moves → other sees it (BLOCKED — see STATE.md NEEDS HUMAN: no network to install Playwright + browser binaries)
+- [x] e2e Playwright: two browser clients, one moves → other sees it
 
 ---
 
@@ -83,6 +83,10 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
       without revealing the hidden attacker. Also: per-player own-character inclusion
       if a host ever hides a player's own token (today the player-filtered BoardState
       is role-uniform, so a hidden own-token drops from that player's board view).
+- [ ] CORS vs same-origin decision for the REST API: it currently has NO CORS
+      middleware (only Socket.IO does), so the e2e relies on a Vite dev proxy. If
+      same-origin is not the intended prod topology, add FastAPI `CORSMiddleware`.
+      Non-blocking; needs a host/architect call on the deployment topology.
 - [ ] Host-only auth gate on HTTP room-CONFIG endpoints (place/update token, set
       initiative, add player, upload map, revoke links) — currently unguarded.
       NEEDS ARCHITECT + human sign-off: introduces HTTP authentication (reuse the

@@ -375,6 +375,33 @@ export default function MapBoard({
     [reportAck],
   );
 
+  // E2E-only hook: expose the real token-move path + live readiness on `window` so
+  // the multi-client Playwright sync test can drive a move deterministically (Konva
+  // renders to a <canvas>, so a token cannot be selected/dragged via the DOM). The
+  // move goes through the identical optimistic-move + socket emit + server-broadcast
+  // + reconcile path the UI drag uses — it does NOT fake the broadcast; `connection`
+  // lets the test wait until BOTH clients have joined the room before the move (a
+  // broadcast is not replayed to a client that joins after it). Compiled out of
+  // normal builds (the branch is dead unless VITE_E2E is set at build time).
+  useEffect(() => {
+    if (!import.meta.env.VITE_E2E) {
+      return;
+    }
+    const w = window as typeof window & {
+      __e2e?: {
+        moveToken: (tokenId: string, x: number, y: number) => void;
+        connection: ConnectionStatus;
+      };
+    };
+    w.__e2e = {
+      moveToken: (tokenId, x, y) => handleTokenMove(tokenId, { x, y }),
+      connection,
+    };
+    return () => {
+      delete w.__e2e;
+    };
+  }, [handleTokenMove, connection]);
+
   const banner = connectionBanner(connection);
   const tokens = joinTokens(displayTokens(board), characters);
   // Token ids this client may attack WITH (host: all; player: its own token).
