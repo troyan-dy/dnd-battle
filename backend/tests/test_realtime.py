@@ -460,6 +460,60 @@ async def test_handle_action_player_cannot_move_foreign_token(seeded: SeededBoar
         assert (token.x, token.y) == (3, 4)
 
 
+async def test_handle_action_player_mark_broadcasts_without_mutation(seeded: SeededBoard) -> None:
+    """A player's mark/ping broadcasts to the WHOLE room and changes no durable rows.
+
+    Marks are ephemeral (no Mark row, no BoardState field): the server validates the
+    intent — a non-token payload any participant may issue — and broadcasts the stamped
+    Action so everyone sees the ping, while apply_action is a deliberate no-op for it.
+    """
+    sio = _fake_sio()
+    actor = seeded.player_participant_id
+    _joined(
+        sio,
+        JoinedIdentity(
+            room_id=seeded.room_id,
+            role=ParticipantRole.player,
+            participant_id=actor,
+            character_id=seeded.player_character_id,
+        ),
+    )
+    token_id = await _seeded_token_id(seeded)
+    intent = {
+        "version": 1,
+        "payload": {"type": "mark", "x": 5, "y": 6, "color": "#ff0000", "label": "here"},
+    }
+
+    ack = await handle_action(
+        sio, "sid1", intent, sequencer=RoomSequencer(), session_factory=seeded.factory
+    )
+
+    assert ack["ok"] is True
+    # Broadcast to the whole room (everyone sees the ping), not a single sid.
+    sio.emit.assert_awaited_once()
+    args, kwargs = sio.emit.await_args
+    assert args[0] == "action"
+    assert kwargs == {"room": room_name(str(seeded.room_id))}
+    action = args[1]
+    assert action["actor_participant_id"] == str(actor)
+    assert action["payload"] == {
+        "type": "mark",
+        "x": 5,
+        "y": 6,
+        "color": "#ff0000",
+        "label": "here",
+    }
+
+    # No durable mutation: token cell and character HP are untouched.
+    async with seeded.factory() as session:
+        token = await session.get(Token, token_id)
+        assert token is not None
+        assert (token.x, token.y) == (3, 4)
+        character = await session.get(Character, seeded.player_character_id)
+        assert character is not None
+        assert character.current_hp == 20
+
+
 async def test_handle_action_seq_is_monotonic_per_room(seeded: SeededBoard) -> None:
     """A shared sequencer hands out increasing seq across actions in the same room."""
     sio = _fake_sio()

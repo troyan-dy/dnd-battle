@@ -1,5 +1,6 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Action } from '../api/types';
 import type { ImageElementState } from './useImageElement';
 
 // react-konva needs a real canvas, which jsdom lacks. Replace its components
@@ -18,6 +19,7 @@ vi.mock('react-konva', () => ({
   Group: ({ children }: { children?: React.ReactNode }) => (
     <div data-testid="token-group">{children}</div>
   ),
+  Circle: () => <div data-testid="circle" />,
   Rect: () => <div data-testid="rect" />,
   Text: (props: { text?: string }) => <div data-testid="text">{props.text}</div>,
 }));
@@ -29,11 +31,20 @@ vi.mock('../api/client', () => ({
   listCharacters: vi.fn(() => Promise.resolve([])),
 }));
 
-// Don't open a real Socket.IO connection in jsdom; hand back a fake socket.
-const fakeSocket = vi.hoisted(() => ({ disconnect: vi.fn() }));
-vi.mock('../realtime/connection', () => ({
-  createBoardSocket: vi.fn(() => fakeSocket),
+// Don't open a real Socket.IO connection in jsdom; hand back a fake socket and
+// capture the options so tests can drive the onBoardState/onAction callbacks.
+const socketHarness = vi.hoisted(() => ({
+  socket: { disconnect: vi.fn() },
+  options: undefined as
+    undefined | { onAction?: (a: Action) => void; onBoardState?: (s: unknown) => void },
   emitAction: vi.fn(() => Promise.resolve({ ok: true })),
+}));
+vi.mock('../realtime/connection', () => ({
+  createBoardSocket: vi.fn((_token: string, options: unknown) => {
+    socketHarness.options = options as typeof socketHarness.options;
+    return socketHarness.socket;
+  }),
+  emitAction: socketHarness.emitAction,
 }));
 
 // Drive MapBoard's load state directly.
@@ -48,7 +59,29 @@ import MapBoard from './MapBoard';
 
 afterEach(() => {
   imageState.current = { image: null, status: 'loading' };
+  socketHarness.options = undefined;
+  socketHarness.emitAction.mockClear();
 });
+
+/** Render a fully loaded board (image + measured container) for interaction tests. */
+function renderLoadedBoard() {
+  const img = { width: 640, height: 480 } as HTMLImageElement;
+  imageState.current = { image: img, status: 'loaded' };
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+  return render(<MapBoard roomId="room-1" token="tok-1" />);
+}
+
+function markAction(): Action {
+  return {
+    version: 1,
+    id: 'act-mark-1',
+    room_id: 'room-1',
+    actor_participant_id: 'p-1',
+    seq: 0,
+    payload: { type: 'mark', x: 2, y: 3 },
+  };
+}
 
 // Let the board-hydrate effect's resolved fetches settle so their state update
 // stays inside act() (the mocks resolve to empty arrays).
@@ -88,5 +121,27 @@ describe('MapBoard', () => {
     expect(konvaImage).toHaveAttribute('data-width', '640');
     expect(konvaImage).toHaveAttribute('data-height', '480');
     await flushHydrate();
+  });
+
+  it('toggles ping mode via the Ping control', async () => {
+    renderLoadedBoard();
+    await flushHydrate();
+
+    const ping = screen.getByRole('button', { name: /ping/i });
+    expect(ping).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(ping);
+    expect(ping).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('renders a mark when the server broadcasts a mark action', async () => {
+    renderLoadedBoard();
+    await flushHydrate();
+
+    expect(screen.queryByTestId('circle')).toBeNull();
+    act(() => {
+      socketHarness.options?.onAction?.(markAction());
+    });
+    // MarkLayer draws two Circles per mark (ring + dot).
+    expect(screen.getAllByTestId('circle').length).toBeGreaterThan(0);
   });
 });

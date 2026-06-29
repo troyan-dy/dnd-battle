@@ -1,7 +1,7 @@
 // Renders a room's encounter map on a Konva stage with pan + zoom, plus the
-// live tokens — synced in real time over Socket.IO.
+// live tokens and transient marks/pings — synced in real time over Socket.IO.
 //
-// Realtime (Phase 4): the board opens a Socket.IO connection authenticated by
+// Realtime (Phase 4/5): the board opens a Socket.IO connection authenticated by
 // this client's invite token, receives the full BoardState on (re)join, and
 // applies each broadcast Action. A client may drag its own token(s): the move is
 // applied OPTIMISTICALLY for instant feedback, then reconciled against the
@@ -9,10 +9,15 @@
 // server position on mismatch, and a rejected intent rolls the move back.
 // Reconciliation logic is isolated in `./reconcile` (pure, unit-tested).
 //
+// Marks/pings (Phase 5): any participant may drop a temporary ping that the
+// server broadcasts to everyone in the room; pings are EPHEMERAL (no durable
+// storage) and auto-expire client-side. Logic is isolated in `./marks`.
+//
 // Interaction:
 //   - drag anywhere on empty board to pan (the stage itself is draggable)
 //   - mouse wheel / trackpad scroll to zoom toward the cursor
 //   - drag your own token to move it (grid-snapped)
+//   - toggle "Ping" mode, then click the board to drop a temporary mark
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image as KonvaImage, Layer, Stage } from 'react-konva';
@@ -24,7 +29,9 @@ import { createBoardSocket, emitAction } from '../realtime/connection';
 import GridLayer from './GridLayer';
 import { DEFAULT_GRID, MIN_CELL_SIZE, type GridConfig } from './grid';
 import TokenLayer from './TokenLayer';
-import { joinTokens } from './tokens';
+import MarkLayer from './MarkLayer';
+import { addMark, markFromAction, pruneExpired, type BoardMark } from './marks';
+import { joinTokens, worldToCell } from './tokens';
 import {
   applyAction,
   beginOptimisticMove,
@@ -36,7 +43,13 @@ import {
   type ReconcilableBoard,
 } from './reconcile';
 import { useImageElement } from './useImageElement';
-import { fitViewport, IDENTITY_VIEWPORT, zoomAtPoint, type Viewport } from './viewport';
+import {
+  fitViewport,
+  IDENTITY_VIEWPORT,
+  screenToWorld,
+  zoomAtPoint,
+  type Viewport,
+} from './viewport';
 
 export interface MapBoardProps {
   /** Room whose board to render. */
@@ -89,6 +102,8 @@ export default function MapBoard({
   const [showGrid, setShowGrid] = useState(true);
   const [board, setBoard] = useState<ReconcilableBoard>(EMPTY_BOARD);
   const [characters, setCharacters] = useState<CharacterResponse[]>([]);
+  const [marks, setMarks] = useState<BoardMark[]>([]);
+  const [pingMode, setPingMode] = useState(false);
   const socketRef = useRef<Socket | null>(null);
 
   const updateGrid = (patch: Partial<GridConfig>) => setGrid((g) => ({ ...g, ...patch }));
@@ -126,6 +141,14 @@ export default function MapBoard({
         setBoard(fromBoardState(state));
       },
       onAction: (action) => {
+        if (action.payload.type === 'mark') {
+          const now = Date.now();
+          const mark = markFromAction(action, now);
+          if (mark) {
+            setMarks((m) => addMark(pruneExpired(m, now), mark));
+          }
+          return;
+        }
         setBoard((b) => applyAction(b, action));
       },
     });
@@ -135,6 +158,16 @@ export default function MapBoard({
       socket.disconnect();
     };
   }, [token]);
+
+  // Periodically drop expired marks so pings fade on their own. pruneExpired
+  // returns the same array when nothing changed, so this re-renders only when a
+  // mark actually expires.
+  useEffect(() => {
+    const id = setInterval(() => {
+      setMarks((m) => pruneExpired(m, Date.now()));
+    }, 500);
+    return () => clearInterval(id);
+  }, []);
 
   // Whether this client may drag a given token (server still enforces this; the
   // UI just avoids offering moves it knows will be rejected).
@@ -161,6 +194,27 @@ export default function MapBoard({
       },
     );
   }, []);
+
+  // In ping mode, a click anywhere on the board drops a temporary mark at the
+  // clicked cell. We only emit the intent; the server broadcasts the resulting
+  // Action back to everyone (including us), which is what renders the mark.
+  const handleStageClick = useCallback(
+    (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+      if (!pingMode) {
+        return;
+      }
+      const stage = e.target.getStage();
+      const pointer = stage?.getPointerPosition();
+      const socket = socketRef.current;
+      if (!pointer || !socket) {
+        return;
+      }
+      const world = screenToWorld(viewport, pointer);
+      const cell = worldToCell(world.x, world.y, grid);
+      void emitAction(socket, { type: 'mark', x: cell.x, y: cell.y });
+    },
+    [pingMode, viewport, grid],
+  );
 
   const tokens = joinTokens(displayTokens(board), characters);
 
@@ -209,9 +263,11 @@ export default function MapBoard({
           y={viewport.y}
           scaleX={viewport.scale}
           scaleY={viewport.scale}
-          draggable
+          draggable={!pingMode}
           onWheel={handleWheel}
           onDragEnd={handleDragEnd}
+          onClick={handleStageClick}
+          onTap={handleStageClick}
         >
           <Layer>
             <KonvaImage image={image} width={image.width} height={image.height} />
@@ -224,11 +280,20 @@ export default function MapBoard({
               />
             )}
             <TokenLayer tokens={tokens} config={grid} canDrag={canDrag} onMove={handleTokenMove} />
+            <MarkLayer marks={marks} config={grid} scale={viewport.scale} />
           </Layer>
         </Stage>
       )}
       {status === 'loaded' && image && (
         <div className="map-board__grid-controls">
+          <button
+            type="button"
+            className={pingMode ? 'map-board__ping-toggle is-active' : 'map-board__ping-toggle'}
+            aria-pressed={pingMode}
+            onClick={() => setPingMode((p) => !p)}
+          >
+            Ping
+          </button>
           <label>
             <input
               type="checkbox"

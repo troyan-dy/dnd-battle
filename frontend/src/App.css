@@ -284,6 +284,20 @@
 .map-board__grid-controls input[type='number'] {
   width: 4rem;
 }
+.map-board__ping-toggle {
+  cursor: pointer;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid #4a4a55;
+  border-radius: 4px;
+  background: transparent;
+  color: #cfcfd6;
+  font-size: 0.8rem;
+}
+.map-board__ping-toggle.is-active {
+  background: #ffd33d;
+  border-color: #ffd33d;
+  color: #1e1e24;
+}
 
 /* Player view: shared board on the left, the player's own character panel right */
 .board-view {
