@@ -180,3 +180,41 @@
     border-right-color: var(--border);
   }
 }
+
+/* --- Phase 1 screens (create room / join) --- */
+.screen {
+  max-width: 32rem;
+  margin: 4rem auto;
+  padding: 0 1.5rem;
+  text-align: left;
+}
+.screen form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.screen label {
+  margin-top: 0.75rem;
+  font-weight: 600;
+}
+.screen input {
+  padding: 0.5rem 0.6rem;
+  font-size: 1rem;
+}
+.screen button[type='submit'] {
+  margin-top: 1.25rem;
+}
+.screen .link-row {
+  display: flex;
+  gap: 0.5rem;
+}
+.screen .link-row input {
+  flex: 1;
+}
+.screen .error {
+  color: #b00020;
+}
+.screen .hint {
+  color: #666;
+  font-size: 0.9rem;
+}

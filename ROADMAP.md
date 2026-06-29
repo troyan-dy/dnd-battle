@@ -23,7 +23,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] API: generate per-participant unique invite links bound to a character slot
 - [x] API: resolve invite link → `{ roomId, participantId, role, characterId }`
 - [x] Link security: unguessable tokens, single-purpose, revocable
-- [ ] Frontend: host "create room" screen; join screen via link
+- [x] Frontend: host "create room" screen; join screen via link
 
 ## Phase 2 — Map & board rendering
 - [ ] API: host uploads a map image; stored + served
