@@ -117,3 +117,68 @@ export interface BoardState {
   tokens: TokenResponse[];
   characters: CharacterResponse[];
 }
+
+// ---------------------------------------------------------------------------
+// Versioned Action protocol — mirrors app/schemas/action.py (source of truth).
+// An Action is a board change broadcast to everyone in a room. Clients send an
+// ActionIntent; the server validates and broadcasts the resulting Action.
+// ---------------------------------------------------------------------------
+
+/** Current Action-protocol version (mirrors ACTION_PROTOCOL_VERSION). */
+export const ACTION_PROTOCOL_VERSION = 1;
+
+export type ActionType = 'move' | 'mark' | 'damage' | 'endTurn';
+
+/** Move a token to a grid cell. */
+export interface MovePayload {
+  type: 'move';
+  token_id: string;
+  x: number;
+  y: number;
+}
+
+/** A transient mark / ping placed on the board for everyone to see. */
+export interface MarkPayload {
+  type: 'mark';
+  x: number;
+  y: number;
+  color?: string | null;
+  label?: string | null;
+}
+
+/** Apply damage to a token. */
+export interface DamagePayload {
+  type: 'damage';
+  token_id: string;
+  amount: number;
+}
+
+/** Advance the initiative order to the next combatant. */
+export interface EndTurnPayload {
+  type: 'endTurn';
+}
+
+/** Discriminated union of every concrete action payload (key: `type`). */
+export type ActionPayload = MovePayload | MarkPayload | DamagePayload | EndTurnPayload;
+
+/**
+ * Client → server: a request to perform a board action. Carries only the
+ * protocol version and payload; the server stamps actor/room/id itself.
+ */
+export interface ActionIntent {
+  version?: number;
+  payload: ActionPayload;
+}
+
+/**
+ * Server → all clients: the validated, broadcast board action with
+ * server-generated metadata. `seq` is a per-room monotonic counter.
+ */
+export interface Action {
+  version: number;
+  id: string;
+  room_id: string;
+  actor_participant_id: string;
+  seq: number;
+  payload: ActionPayload;
+}
