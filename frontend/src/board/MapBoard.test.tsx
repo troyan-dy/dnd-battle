@@ -14,6 +14,7 @@ vi.mock('react-konva', () => ({
   Image: (props: { width?: number; height?: number }) => (
     <div data-testid="konva-image" data-width={props.width} data-height={props.height} />
   ),
+  Line: () => <div data-testid="grid-line" />,
 }));
 
 // Drive MapBoard's load state directly.

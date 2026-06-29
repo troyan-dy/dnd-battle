@@ -14,6 +14,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Image as KonvaImage, Layer, Stage } from 'react-konva';
 import type Konva from 'konva';
 import { mapImageUrl } from '../api/client';
+import GridLayer from './GridLayer';
+import { DEFAULT_GRID, MIN_CELL_SIZE, type GridConfig } from './grid';
 import { useImageElement } from './useImageElement';
 import { fitViewport, IDENTITY_VIEWPORT, zoomAtPoint, type Viewport } from './viewport';
 
@@ -52,6 +54,10 @@ export default function MapBoard({ roomId }: MapBoardProps) {
   const [containerRef, size] = useElementSize();
   const { image, status } = useImageElement(mapImageUrl(roomId));
   const [viewport, setViewport] = useState<Viewport>(IDENTITY_VIEWPORT);
+  const [grid, setGrid] = useState<GridConfig>(DEFAULT_GRID);
+  const [showGrid, setShowGrid] = useState(true);
+
+  const updateGrid = (patch: Partial<GridConfig>) => setGrid((g) => ({ ...g, ...patch }));
 
   // Frame the map to fit once it (and the container) are known.
   useEffect(() => {
@@ -104,8 +110,58 @@ export default function MapBoard({ roomId }: MapBoardProps) {
         >
           <Layer>
             <KonvaImage image={image} width={image.width} height={image.height} />
+            {showGrid && (
+              <GridLayer
+                config={grid}
+                width={image.width}
+                height={image.height}
+                scale={viewport.scale}
+              />
+            )}
           </Layer>
         </Stage>
+      )}
+      {status === 'loaded' && image && (
+        <div className="map-board__grid-controls">
+          <label>
+            <input
+              type="checkbox"
+              checked={showGrid}
+              onChange={(e) => setShowGrid(e.target.checked)}
+            />
+            Grid
+          </label>
+          <label>
+            Cell
+            <input
+              type="number"
+              min={MIN_CELL_SIZE}
+              step={1}
+              value={grid.cellSize}
+              onChange={(e) =>
+                updateGrid({ cellSize: Math.max(MIN_CELL_SIZE, Number(e.target.value) || 0) })
+              }
+            />
+          </label>
+          <label>
+            X
+            <input
+              type="number"
+              step={1}
+              value={grid.offsetX}
+              onChange={(e) => updateGrid({ offsetX: Number(e.target.value) || 0 })}
+            />
+          </label>
+          <label>
+            Y
+            <input
+              type="number"
+              step={1}
+              value={grid.offsetY}
+              onChange={(e) => updateGrid({ offsetY: Number(e.target.value) || 0 })}
+            />
+          </label>
+        </div>
       )}
     </div>
   );
