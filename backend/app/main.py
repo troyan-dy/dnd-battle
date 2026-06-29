@@ -4,11 +4,14 @@ Usage (module-level app is importable by uvicorn):
     uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 """
 
+from typing import Any
+
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from app.api.invites import router as invites_router
 from app.api.rooms import router as rooms_router
+from app.realtime import create_asgi_app
 
 
 def create_app() -> FastAPI:
@@ -40,11 +43,16 @@ def create_app() -> FastAPI:
     application.include_router(invites_router)
 
     # ---------------------------------------------------------------------------
-    # Future: mount socket.io sub-app, include versioned API routers, add CORS.
+    # Future: include versioned API routers, add CORS middleware.
     # ---------------------------------------------------------------------------
 
     return application
 
 
-# Module-level instance so `uvicorn app.main:app` works out of the box.
-app = create_app()
+# Module-level FastAPI instance (importable for HTTP-only tests / sub-mounting).
+fastapi_app = create_app()
+
+# Module-level ASGI instance so `uvicorn app.main:app` serves BOTH the REST API
+# and the realtime `/socket.io` endpoint from one process. Socket.IO requests are
+# handled by the AsyncServer; everything else falls through to FastAPI.
+app: Any = create_asgi_app(fastapi_app)

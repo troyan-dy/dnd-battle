@@ -10,6 +10,7 @@ dependencies = [
     "asyncpg>=0.30",
     "alembic>=1.14",
     "python-multipart>=0.0.9",
+    "python-socketio>=5.11",
 ]
 
 [dependency-groups]
@@ -68,3 +69,8 @@ files = ["app", "tests"]
 # Tests use third-party fixtures/decorators without stubs; relax a little.
 module = "tests.*"
 disallow_untyped_decorators = false
+
+[[tool.mypy.overrides]]
+# python-socketio ships no type information (no py.typed); treat as untyped.
+module = ["socketio.*"]
+ignore_missing_imports = true

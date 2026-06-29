@@ -38,7 +38,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Token rendering: name, HP bar, current conditions
 
 ## Phase 4 — Realtime sync (the core)
-- [ ] python-socketio mounted on FastAPI; client connects via socket.io-client
+- [x] python-socketio mounted on FastAPI; client connects via socket.io-client
 - [ ] Join room → server sends FULL current BoardState (reconnect-safe)
 - [ ] Action protocol (Pydantic): move, mark, damage, endTurn… defined + versioned
 - [ ] Server validates intents (permissions + bounds) before broadcasting

@@ -42,3 +42,23 @@ MAP_CONTENT_TYPE_EXTENSIONS: dict[str, str] = {
     "image/webp": ".webp",
     "image/gif": ".gif",
 }
+
+
+def _split_origins(raw: str) -> list[str]:
+    """Parse a comma-separated origins string into a de-duplicated, ordered list."""
+    seen: dict[str, None] = {}
+    for part in raw.split(","):
+        origin = part.strip().rstrip("/")
+        if origin and origin not in seen:
+            seen[origin] = None
+    return list(seen)
+
+
+# Origins allowed to open a realtime Socket.IO connection. The SPA runs on a
+# different origin from the API in dev (Vite) and prod, so the websocket/polling
+# handshake must be explicitly allowlisted by the Socket.IO server. Comma-separated
+# env override; defaults cover the configured public frontend origin plus the Vite
+# dev server so local end-to-end flows work out of the box.
+SOCKETIO_CORS_ORIGINS: list[str] = _split_origins(
+    os.getenv("SOCKETIO_CORS_ORIGINS", f"{APP_BASE_URL},http://localhost:5173")
+)
