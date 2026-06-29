@@ -14,7 +14,15 @@ import pytest
 import pytest_asyncio
 from app.db.session import get_session
 from app.main import create_app
-from app.models import Base, InviteLink, Participant, ParticipantRole, Room, RoomStatus
+from app.models import (
+    Base,
+    Character,
+    InviteLink,
+    Participant,
+    ParticipantRole,
+    Room,
+    RoomStatus,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
@@ -113,4 +121,132 @@ async def test_create_room_rejects_blank_name(
     """An empty room name fails validation with 422."""
     client, _ = client_and_factory
     resp = await client.post("/rooms", json={"name": ""})
+    assert resp.status_code == 422
+
+
+async def _create_room(client: httpx.AsyncClient, name: str = "Room") -> str:
+    """Helper: create a room and return its id."""
+    resp = await client.post("/rooms", json={"name": name})
+    assert resp.status_code == 201
+    room_id: str = resp.json()["room"]["id"]
+    return room_id
+
+
+@pytest.mark.asyncio
+async def test_add_player_mints_link_bound_to_character(
+    client_and_factory: ClientFactory,
+) -> None:
+    """POST /rooms/{id}/participants -> 201: player + character slot + invite link."""
+    client, factory = client_and_factory
+    room_id = await _create_room(client, "Goblin Ambush")
+
+    resp = await client.post(
+        f"/rooms/{room_id}/participants",
+        json={"character_name": "Aria", "max_hp": 24, "display_name": "Player One"},
+    )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["role"] == ParticipantRole.player.value
+    participant_id = body["participant_id"]
+    character_id = body["character_id"]
+
+    token = body["invite_link"]["token"]
+    assert token
+    assert body["invite_link"]["url"].endswith("/join/" + token)
+
+    async with factory() as session:
+        # Character slot created with current_hp seeded from max_hp.
+        character = (await session.execute(select(Character))).scalars().one()
+        assert str(character.id) == character_id
+        assert character.name == "Aria"
+        assert character.max_hp == 24
+        assert character.current_hp == 24
+        assert str(character.room_id) == room_id
+
+        # Player participant bound to that character slot.
+        player = (
+            (
+                await session.execute(
+                    select(Participant).where(Participant.role == ParticipantRole.player)
+                )
+            )
+            .scalars()
+            .one()
+        )
+        assert str(player.id) == participant_id
+        assert str(player.character_id) == character_id
+        assert player.display_name == "Player One"
+
+        # Per-participant invite link; only the SHA-256 hash is stored.
+        invite = (
+            (
+                await session.execute(
+                    select(InviteLink).where(InviteLink.participant_id == player.id)
+                )
+            )
+            .scalars()
+            .one()
+        )
+        assert str(invite.room_id) == room_id
+        assert invite.token_hash == hashlib.sha256(token.encode()).hexdigest()
+        assert invite.token_hash != token
+
+
+@pytest.mark.asyncio
+async def test_add_player_mints_unique_tokens(
+    client_and_factory: ClientFactory,
+) -> None:
+    """Two players in the same room get distinct tokens and distinct character slots."""
+    client, _ = client_and_factory
+    room_id = await _create_room(client)
+
+    first = (
+        await client.post(
+            f"/rooms/{room_id}/participants",
+            json={"character_name": "A", "max_hp": 10},
+        )
+    ).json()
+    second = (
+        await client.post(
+            f"/rooms/{room_id}/participants",
+            json={"character_name": "B", "max_hp": 10},
+        )
+    ).json()
+
+    assert first["invite_link"]["token"] != second["invite_link"]["token"]
+    assert first["character_id"] != second["character_id"]
+    assert first["participant_id"] != second["participant_id"]
+
+
+@pytest.mark.asyncio
+async def test_add_player_unknown_room_returns_404(
+    client_and_factory: ClientFactory,
+) -> None:
+    """Adding a player to a nonexistent room fails with 404 (no rows created)."""
+    client, factory = client_and_factory
+    missing_room = "00000000-0000-0000-0000-000000000000"
+
+    resp = await client.post(
+        f"/rooms/{missing_room}/participants",
+        json={"character_name": "Ghost", "max_hp": 5},
+    )
+    assert resp.status_code == 404
+
+    async with factory() as session:
+        assert (await session.execute(select(Character))).scalars().all() == []
+        assert (await session.execute(select(InviteLink))).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_add_player_rejects_nonpositive_hp(
+    client_and_factory: ClientFactory,
+) -> None:
+    """max_hp must be > 0 (422)."""
+    client, _ = client_and_factory
+    room_id = await _create_room(client)
+    resp = await client.post(
+        f"/rooms/{room_id}/participants",
+        json={"character_name": "Aria", "max_hp": 0},
+    )
     assert resp.status_code == 422

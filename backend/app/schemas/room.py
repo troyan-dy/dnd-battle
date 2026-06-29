@@ -49,3 +49,32 @@ class CreateRoomResponse(BaseModel):
     host_participant_id: uuid.UUID
     host_role: ParticipantRole
     host_link: InviteLinkResponse
+
+
+class AddPlayerRequest(BaseModel):
+    """Host's request to add a player participant + their character slot to a room."""
+
+    character_name: str = Field(
+        min_length=1,
+        max_length=120,
+        description="Name of the character slot the player will control.",
+    )
+    max_hp: int = Field(gt=0, le=1000, description="The character's maximum hit points.")
+    display_name: str | None = Field(
+        default=None,
+        max_length=120,
+        description="Optional friendly name shown for the player.",
+    )
+
+
+class AddPlayerResponse(BaseModel):
+    """Result of adding a player: the participant, their character, and invite link.
+
+    The invite link is bound to (room, participant, character): opening it later
+    resolves the player to exactly this character slot.
+    """
+
+    participant_id: uuid.UUID
+    character_id: uuid.UUID
+    role: ParticipantRole
+    invite_link: InviteLinkResponse
