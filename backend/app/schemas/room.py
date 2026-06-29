@@ -91,6 +91,18 @@ class RevokeLinksResponse(BaseModel):
     revoked: int = Field(ge=0, description="How many active links this call revoked.")
 
 
+class MapResponse(BaseModel):
+    """Result of uploading (or describing) a room's current map image.
+
+    ``url`` is the server path that streams the stored image back
+    (``GET /rooms/{room_id}/map``); the bytes themselves are never inlined here.
+    """
+
+    room_id: uuid.UUID
+    content_type: str = Field(description="Validated image MIME type of the stored map.")
+    url: str = Field(description="Path that serves the map image: /rooms/{room_id}/map.")
+
+
 class ResolveInviteResponse(BaseModel):
     """Result of resolving an invite token -> who/where the link binds the visitor.
 

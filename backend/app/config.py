@@ -20,3 +20,25 @@ DATABASE_URL: str = os.getenv(
 # links (e.g. ``{APP_BASE_URL}/join/{token}``). No trailing slash. Override per
 # environment; the Vite dev server default keeps local end-to-end flows working.
 APP_BASE_URL: str = os.getenv("APP_BASE_URL", "http://localhost:5173").rstrip("/")
+
+# ---------------------------------------------------------------------------
+# Map image storage. Uploaded encounter maps live on the local filesystem under
+# this directory (a zero-infra default; swap for object storage when scaling,
+# behind the same API contract). Files are written with server-generated names,
+# so the directory only ever contains app-controlled paths.
+# ---------------------------------------------------------------------------
+MAP_STORAGE_DIR: str = os.getenv("MAP_STORAGE_DIR", "./var/map_uploads")
+
+# Hard cap on a single map upload (bytes). Default 10 MiB. The upload handler
+# reads at most this many bytes + 1 so an oversized body never buffers unbounded.
+MAX_MAP_UPLOAD_BYTES: int = int(os.getenv("MAX_MAP_UPLOAD_BYTES", str(10 * 1024 * 1024)))
+
+# Allowlisted image MIME types for map uploads. Anything else is rejected (415)
+# before touching disk; the stored file extension is derived from this mapping,
+# never from the client-supplied filename.
+MAP_CONTENT_TYPE_EXTENSIONS: dict[str, str] = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}

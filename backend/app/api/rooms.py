@@ -18,10 +18,12 @@ import datetime as dt
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import config
 from app.config import APP_BASE_URL
 from app.db.session import get_session
 from app.models.character import Character
@@ -35,10 +37,12 @@ from app.schemas.room import (
     CreateRoomRequest,
     CreateRoomResponse,
     InviteLinkResponse,
+    MapResponse,
     RevokeLinksResponse,
     RoomSummary,
 )
 from app.security.tokens import generate_token, hash_token
+from app.storage.maps import map_image_path, save_map_image
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
 
@@ -46,6 +50,11 @@ router = APIRouter(prefix="/rooms", tags=["rooms"])
 def build_invite_url(token: str) -> str:
     """Return the shareable join URL for a plaintext invite token."""
     return f"{APP_BASE_URL}/join/{token}"
+
+
+def build_map_url(room_id: uuid.UUID) -> str:
+    """Return the path that streams a room's stored map image."""
+    return f"/rooms/{room_id}/map"
 
 
 @router.post("", response_model=CreateRoomResponse, status_code=status.HTTP_201_CREATED)
@@ -188,3 +197,83 @@ async def revoke_participant_links(
     await session.commit()
 
     return RevokeLinksResponse(revoked=len(active_links))
+
+
+@router.post(
+    "/{room_id}/map",
+    response_model=MapResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_map(
+    room_id: uuid.UUID,
+    file: UploadFile,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> MapResponse:
+    """Host action: upload (or replace) the room's encounter map image.
+
+    No auth gate yet — this follows the same established host-action pattern as
+    ``add_player``/``revoke`` (the link is the credential); server-enforced
+    permissions are the explicit Phase 7 task. Validation guardrails:
+
+    * the content type must be in the image allowlist (otherwise 415);
+    * the body is read with a hard size cap (otherwise 413);
+    * the file is stored under a *server-generated* name, so the client filename
+      never influences the path (no traversal).
+
+    Re-uploading overwrites the room's map pointer; the previous file is left on
+    disk (cleanup is deferred — we never delete user content implicitly).
+    """
+    room = await session.get(Room, room_id)
+    if room is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found.")
+
+    content_type = file.content_type or ""
+    if content_type not in config.MAP_CONTENT_TYPE_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported map image type. Allowed: PNG, JPEG, WEBP, GIF.",
+        )
+
+    # Read at most the cap + 1 byte so an oversized upload never buffers unbounded.
+    data = await file.read(config.MAX_MAP_UPLOAD_BYTES + 1)
+    if len(data) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Empty map image upload.",
+        )
+    if len(data) > config.MAX_MAP_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="Map image exceeds the maximum allowed size.",
+        )
+
+    filename = save_map_image(data, content_type)
+    room.map_image_path = filename
+    room.map_content_type = content_type
+    await session.commit()
+
+    return MapResponse(
+        room_id=room.id,
+        content_type=content_type,
+        url=build_map_url(room.id),
+    )
+
+
+@router.get("/{room_id}/map")
+async def get_map(
+    room_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> FileResponse:
+    """Serve a room's stored map image (reconnect-safe: a plain idempotent read).
+
+    Returns 404 if the room has no map, or its stored file is missing on disk.
+    """
+    room = await session.get(Room, room_id)
+    if room is None or room.map_image_path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Map not found.")
+
+    path = map_image_path(room.map_image_path)
+    if not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Map not found.")
+
+    return FileResponse(path, media_type=room.map_content_type or "application/octet-stream")

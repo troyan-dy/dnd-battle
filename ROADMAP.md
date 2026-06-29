@@ -26,7 +26,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Frontend: host "create room" screen; join screen via link
 
 ## Phase 2 — Map & board rendering
-- [ ] API: host uploads a map image; stored + served
+- [x] API: host uploads a map image; stored + served
 - [ ] Frontend: render map on a Konva stage; pan + zoom
 - [ ] Grid overlay (square grid first), configurable cell size + offset
 - [ ] Board viewport syncs nothing yet — purely local rendering

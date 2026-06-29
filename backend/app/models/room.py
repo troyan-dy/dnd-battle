@@ -30,6 +30,12 @@ class Room(Base, TimestampMixin):
         default=RoomStatus.lobby,
         nullable=False,
     )
+    # Current encounter map, if any. ``map_image_path`` is the server-generated
+    # filename within ``MAP_STORAGE_DIR`` (never a client-supplied path);
+    # ``map_content_type`` is the validated, allowlisted image MIME type. Both
+    # are NULL until the host uploads a map; a re-upload overwrites them.
+    map_image_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    map_content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     participants: Mapped[list[Participant]] = relationship(
         back_populates="room",

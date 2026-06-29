@@ -1,3 +1,6 @@
 # Local sqlite databases used for tests / offline schema tooling.
 *.db
 *.db-journal
+
+# Uploaded map images (filesystem storage; not version-controlled).
+var/
