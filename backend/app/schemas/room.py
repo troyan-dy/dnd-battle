@@ -12,12 +12,19 @@ import uuid
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import ParticipantRole, RoomStatus
+from app.rules.damage import DamageType, Defense
 
 # D&D 2024 ability scores range 1..30 (PHB caps player scores at 20, but monsters
 # and magic items can push to 30). 10 is the unmodified human average.
 ABILITY_SCORE_MIN = 1
 ABILITY_SCORE_MAX = 30
 ABILITY_SCORE_DEFAULT = 10
+
+# Armor Class bounds mirror the rules engine (app.rules.attack MIN/MAX_ARMOR_CLASS).
+# 10 is the 2024 unarmored baseline an attack must meet or beat to hit.
+ARMOR_CLASS_MIN = 1
+ARMOR_CLASS_MAX = 50
+ARMOR_CLASS_DEFAULT = 10
 
 # Board grid coordinate bounds. The server has no map-grid dimensions yet (the
 # grid is configured client-side), so we only enforce non-negativity plus a sane
@@ -104,6 +111,16 @@ class AddPlayerRequest(BaseModel):
         default_factory=AbilityScores,
         description="The six D&D 2024 ability scores; each defaults to 10 if omitted.",
     )
+    armor_class: int = Field(
+        default=ARMOR_CLASS_DEFAULT,
+        ge=ARMOR_CLASS_MIN,
+        le=ARMOR_CLASS_MAX,
+        description="Armor Class an attack roll must meet to hit (defaults to 10).",
+    )
+    resistances: dict[str, str] = Field(
+        default_factory=dict,
+        description="Damage-type defenses, e.g. {'fire': 'resistance'}; absent type = normal.",
+    )
     portrait_url: str | None = Field(
         default=None,
         max_length=2048,
@@ -114,6 +131,21 @@ class AddPlayerRequest(BaseModel):
         max_length=120,
         description="Optional friendly name shown for the player.",
     )
+
+    @field_validator("resistances")
+    @classmethod
+    def _validate_resistances(cls, value: dict[str, str]) -> dict[str, str]:
+        """Reject unknown damage types or defense values; drop plain 'normal' entries."""
+        cleaned: dict[str, str] = {}
+        for raw_type, raw_defense in value.items():
+            try:
+                damage_type = DamageType(raw_type)
+                defense = Defense(raw_defense)
+            except ValueError as exc:
+                raise ValueError(f"invalid resistance entry {raw_type!r}: {raw_defense!r}") from exc
+            if defense is not Defense.NORMAL:
+                cleaned[damage_type.value] = defense.value
+        return cleaned
 
     @field_validator("portrait_url")
     @classmethod
@@ -227,8 +259,10 @@ class CharacterResponse(BaseModel):
     name: str
     max_hp: int
     current_hp: int
+    armor_class: int
     portrait_url: str | None
     ability_scores: AbilityScores
+    resistances: dict[str, str]
     conditions: list[str]
 
 

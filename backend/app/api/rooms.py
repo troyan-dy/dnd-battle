@@ -127,7 +127,9 @@ async def add_player(
         name=payload.character_name,
         max_hp=payload.max_hp,
         current_hp=payload.max_hp,
+        armor_class=payload.armor_class,
         ability_scores=payload.ability_scores.model_dump(),
+        resistances=payload.resistances,
         portrait_url=payload.portrait_url,
     )
     session.add(character)

@@ -234,6 +234,92 @@ async def test_add_player_persists_ability_scores_and_portrait(
 
 
 @pytest.mark.asyncio
+async def test_add_player_persists_armor_class_and_resistances(
+    client_and_factory: ClientFactory,
+) -> None:
+    """AC + resistances from the config form are stored and read back on the character."""
+    client, factory = client_and_factory
+    room_id = await _create_room(client)
+
+    resp = await client.post(
+        f"/rooms/{room_id}/participants",
+        json={
+            "character_name": "Borin",
+            "max_hp": 30,
+            "armor_class": 18,
+            "resistances": {"fire": "resistance", "cold": "immunity", "poison": "normal"},
+        },
+    )
+    assert resp.status_code == 201
+    character_id = resp.json()["character_id"]
+
+    async with factory() as session:
+        character = (await session.execute(select(Character))).scalars().one()
+        assert character.armor_class == 18
+        # 'normal' entries are dropped; only real defenses persist.
+        assert character.resistances == {"fire": "resistance", "cold": "immunity"}
+
+    body = (await client.get(f"/rooms/{room_id}/characters/{character_id}")).json()
+    assert body["armor_class"] == 18
+    assert body["resistances"] == {"fire": "resistance", "cold": "immunity"}
+
+
+@pytest.mark.asyncio
+async def test_add_player_defaults_armor_class_and_resistances(
+    client_and_factory: ClientFactory,
+) -> None:
+    """Omitting AC / resistances keeps the 2024 defaults: AC 10, no resistances."""
+    client, factory = client_and_factory
+    room_id = await _create_room(client)
+
+    resp = await client.post(
+        f"/rooms/{room_id}/participants",
+        json={"character_name": "Aria", "max_hp": 10},
+    )
+    assert resp.status_code == 201
+
+    async with factory() as session:
+        character = (await session.execute(select(Character))).scalars().one()
+        assert character.armor_class == 10
+        assert character.resistances == {}
+
+
+@pytest.mark.asyncio
+async def test_add_player_rejects_invalid_resistance(
+    client_and_factory: ClientFactory,
+) -> None:
+    """An unknown damage type or defense value in resistances is a 422."""
+    client, _ = client_and_factory
+    room_id = await _create_room(client)
+
+    bad_type = await client.post(
+        f"/rooms/{room_id}/participants",
+        json={"character_name": "X", "max_hp": 10, "resistances": {"sonic": "resistance"}},
+    )
+    assert bad_type.status_code == 422
+
+    bad_defense = await client.post(
+        f"/rooms/{room_id}/participants",
+        json={"character_name": "X", "max_hp": 10, "resistances": {"fire": "absorb"}},
+    )
+    assert bad_defense.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_add_player_rejects_out_of_range_armor_class(
+    client_and_factory: ClientFactory,
+) -> None:
+    """AC outside the 1..50 range is rejected at parse time (422)."""
+    client, _ = client_and_factory
+    room_id = await _create_room(client)
+    resp = await client.post(
+        f"/rooms/{room_id}/participants",
+        json={"character_name": "X", "max_hp": 10, "armor_class": 51},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_add_player_defaults_ability_scores_to_ten(
     client_and_factory: ClientFactory,
 ) -> None:
@@ -514,6 +600,8 @@ async def test_get_character_returns_stat_block(
     assert body["ability_scores"]["dexterity"] == 16
     assert body["ability_scores"]["charisma"] == 18
     assert body["conditions"] == []
+    assert body["armor_class"] == 10
+    assert body["resistances"] == {}
 
 
 @pytest.mark.asyncio

@@ -29,6 +29,8 @@ function placed(tokenId: string, characterId: string, name: string): PlacedToken
       wisdom: 10,
       charisma: 10,
     },
+    armor_class: 10,
+    resistances: {},
     conditions: [],
   } as CharacterResponse;
   return { token, character };
@@ -44,7 +46,14 @@ function entry(id: string, overrides: Partial<AttackResultPayload> = {}): Combat
       attack_roll: 12,
       attack_bonus: 2,
       attack_total: 14,
+      advantage: 'normal',
+      armor_class: 12,
+      is_hit: true,
+      is_critical_hit: false,
+      is_critical_miss: false,
       damage: '1d6',
+      damage_type: 'slashing',
+      defense: 'normal',
       damage_rolls: [4],
       damage_total: 4,
       ...overrides,
@@ -62,7 +71,7 @@ describe('CombatLogPanel', () => {
     const tokens = [placed('ta', 'ca', 'Goblin'), placed('tb', 'cb', 'Aria')];
     render(<CombatLogPanel entries={[entry('e1')]} tokens={tokens} />);
     expect(screen.getByRole('log')).toHaveTextContent(
-      'Goblin attacks Aria: d20 (12) +2 = 14; 1d6 → 4 damage',
+      'Goblin attacks Aria: d20 (12) +2 = 14 vs AC 12 — hit; 1d6 → 4 damage',
     );
   });
 

@@ -38,6 +38,24 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 
+class _ScriptedRandom(random.Random):
+    """A Random whose ``randint`` returns a fixed script of values in order.
+
+    Used to make server-authoritative dice deterministic: the script lists each
+    d20 (one normally, two under advantage/disadvantage) followed by each damage die.
+    """
+
+    def __init__(self, values: list[int]) -> None:
+        super().__init__()
+        self._values = list(values)
+        self._index = 0
+
+    def randint(self, a: int, b: int) -> int:
+        value = self._values[self._index]
+        self._index += 1
+        return value
+
+
 @dataclass
 class Seeded:
     factory: async_sessionmaker[AsyncSession]
@@ -118,10 +136,19 @@ def _heal(token_id: uuid.UUID, amount: int = 3) -> ActionIntent:
     return ActionIntent(payload=HealPayload(token_id=token_id, amount=amount))
 
 
-def _attack(attacker: uuid.UUID, target: uuid.UUID, *, damage: str = "1d6") -> ActionIntent:
+def _attack(
+    attacker: uuid.UUID,
+    target: uuid.UUID,
+    *,
+    damage: str = "1d6",
+    damage_type: str = "slashing",
+) -> ActionIntent:
     return ActionIntent(
         payload=AttackIntentPayload(
-            attacker_token_id=attacker, target_token_id=target, damage=damage
+            attacker_token_id=attacker,
+            target_token_id=target,
+            damage=damage,
+            damage_type=damage_type,  # type: ignore[arg-type]
         )
     )
 
@@ -315,9 +342,10 @@ async def test_attack_target_must_be_on_this_board(seeded: Seeded) -> None:
     assert "not on this board" in exc.value.reason
 
 
-async def test_resolve_attack_rolls_and_applies_damage(seeded: Seeded) -> None:
-    """resolve_attack rolls the d20 + damage, applies it to the target (clamped)."""
-    rng = random.Random(0)
+async def test_resolve_attack_hit_rolls_and_applies_damage(seeded: Seeded) -> None:
+    """On a hit (total >= AC) the rolled damage is applied to the target (clamped)."""
+    # char2 has the default AC 10; d20=15 + bonus 4 = 19 -> hit; damage dice 6,6.
+    rng = _ScriptedRandom([15, 6, 6])
     async with seeded.factory() as session:
         result = await resolve_attack(
             session,
@@ -332,17 +360,133 @@ async def test_resolve_attack_rolls_and_applies_damage(seeded: Seeded) -> None:
         )
         await session.commit()
 
-    assert 1 <= result.attack_roll <= 20
-    assert result.attack_total == result.attack_roll + 4
-    assert len(result.damage_rolls) == 2
-    assert result.damage_total == sum(result.damage_rolls) + 1
-    assert result.damage_total >= 0
+    assert result.attack_roll == 15
+    assert result.attack_total == 19
+    assert result.armor_class == 10
+    assert result.is_hit is True
+    assert result.is_critical_hit is False
+    assert result.advantage.value == "normal"
+    assert result.damage_rolls == [6, 6]
+    assert result.damage_total == 13  # 6 + 6 + 1 modifier, no defense
+    assert result.defense.value == "normal"
 
-    # char2 started at 30 HP; HP dropped by exactly the rolled damage.
     async with seeded.factory() as session:
         target = await session.get(Character, seeded.p2_character_id)
         assert target is not None
-        assert target.current_hp == 30 - result.damage_total
+        assert target.current_hp == 30 - 13
+
+
+async def test_resolve_attack_miss_applies_no_damage(seeded: Seeded) -> None:
+    """A miss (total < AC, not a natural 20) rolls no damage and leaves HP untouched."""
+    # d20=2 + bonus 0 = 2 < AC 10 -> miss; no damage dice are rolled.
+    rng = _ScriptedRandom([2])
+    async with seeded.factory() as session:
+        result = await resolve_attack(
+            session,
+            room_id=seeded.room_id,
+            payload=AttackIntentPayload(
+                attacker_token_id=seeded.token1_id,
+                target_token_id=seeded.token2_id,
+                damage="2d6+1",
+            ),
+            rng=rng,
+        )
+        await session.commit()
+
+    assert result.is_hit is False
+    assert result.damage_rolls == []
+    assert result.damage_total == 0
+
+    async with seeded.factory() as session:
+        target = await session.get(Character, seeded.p2_character_id)
+        assert target is not None
+        assert target.current_hp == 30  # unchanged
+
+
+async def test_resolve_attack_natural_20_always_hits(seeded: Seeded) -> None:
+    """A natural 20 hits regardless of AC and is flagged a critical hit."""
+    rng = _ScriptedRandom([20, 4])
+    async with seeded.factory() as session:
+        result = await resolve_attack(
+            session,
+            room_id=seeded.room_id,
+            payload=AttackIntentPayload(
+                attacker_token_id=seeded.token1_id,
+                target_token_id=seeded.token2_id,
+                attack_bonus=-20,  # would miss on totals, but a nat 20 always hits
+                damage="1d6",
+            ),
+            rng=rng,
+        )
+        await session.commit()
+
+    assert result.is_hit is True
+    assert result.is_critical_hit is True
+    assert result.damage_total == 4
+
+
+async def test_resolve_attack_applies_target_resistance(seeded: Seeded) -> None:
+    """A target's resistance to the damage type halves the rolled damage (rounded down)."""
+    async with seeded.factory() as session:
+        target = await session.get(Character, seeded.p2_character_id)
+        assert target is not None
+        target.resistances = {"fire": "resistance"}
+        await session.commit()
+
+    # hit (d20=18); damage 2d6 -> 5 + 6 = 11 raw, resisted -> 5.
+    rng = _ScriptedRandom([18, 5, 6])
+    async with seeded.factory() as session:
+        result = await resolve_attack(
+            session,
+            room_id=seeded.room_id,
+            payload=AttackIntentPayload(
+                attacker_token_id=seeded.token1_id,
+                target_token_id=seeded.token2_id,
+                damage="2d6",
+                damage_type="fire",  # type: ignore[arg-type]
+            ),
+            rng=rng,
+        )
+        await session.commit()
+
+    assert result.is_hit is True
+    assert result.defense.value == "resistance"
+    assert result.damage_type.value == "fire"
+    assert result.damage_total == 5  # 11 // 2
+
+    async with seeded.factory() as session:
+        target = await session.get(Character, seeded.p2_character_id)
+        assert target is not None
+        assert target.current_hp == 30 - 5
+
+
+async def test_resolve_attack_advantage_from_target_condition(seeded: Seeded) -> None:
+    """A restrained target grants attacks against it advantage (two d20s, higher used)."""
+    async with seeded.factory() as session:
+        target = await session.get(Character, seeded.p2_character_id)
+        assert target is not None
+        target.conditions = ["restrained"]
+        await session.commit()
+
+    # advantage rolls two d20s (3, 17) and uses the higher (17); then 1d6 -> 4.
+    rng = _ScriptedRandom([3, 17, 4])
+    async with seeded.factory() as session:
+        result = await resolve_attack(
+            session,
+            room_id=seeded.room_id,
+            payload=AttackIntentPayload(
+                attacker_token_id=seeded.token1_id,
+                target_token_id=seeded.token2_id,
+                damage="1d6",
+            ),
+            rng=rng,
+        )
+        await session.commit()
+
+    assert result.advantage.value == "advantage"
+    assert result.attack_roll == 17  # the higher of the two d20s
+    assert result.is_hit is True
+    assert result.damage_total == 4
 
 
 # --- state bounds ---------------------------------------------------------------

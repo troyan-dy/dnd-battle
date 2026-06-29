@@ -18,6 +18,8 @@ function char(overrides: Partial<CharacterResponse> = {}): CharacterResponse {
       wisdom: 10,
       charisma: 10,
     },
+    armor_class: 10,
+    resistances: {},
     conditions: [],
     ...overrides,
   };

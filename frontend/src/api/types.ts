@@ -4,6 +4,28 @@
 export type ParticipantRole = 'host' | 'player';
 export type RoomStatus = 'lobby' | 'active' | 'ended';
 
+/** The thirteen D&D 2024 damage types (mirrors app.rules.damage.DamageType). */
+export type DamageType =
+  | 'acid'
+  | 'bludgeoning'
+  | 'cold'
+  | 'fire'
+  | 'force'
+  | 'lightning'
+  | 'necrotic'
+  | 'piercing'
+  | 'poison'
+  | 'psychic'
+  | 'radiant'
+  | 'slashing'
+  | 'thunder';
+
+/** How a target relates to an incoming damage type (mirrors app.rules.damage.Defense). */
+export type Defense = 'normal' | 'resistance' | 'vulnerability' | 'immunity';
+
+/** Whether an attack roll had advantage/disadvantage (mirrors app.rules.attack.Advantage). */
+export type Advantage = 'normal' | 'advantage' | 'disadvantage';
+
 export interface CreateRoomRequest {
   name: string;
   host_display_name?: string | null;
@@ -44,6 +66,10 @@ export interface AddPlayerRequest {
   character_name: string;
   max_hp: number;
   ability_scores?: AbilityScores;
+  /** Armor Class an attack must meet to hit (1..50; defaults to 10 server-side). */
+  armor_class?: number;
+  /** Damage-type defenses, e.g. {"fire": "resistance"}; absent type = normal. */
+  resistances?: Record<string, Defense>;
   /** Optional http(s) portrait image URL. */
   portrait_url?: string | null;
   display_name?: string | null;
@@ -64,9 +90,13 @@ export interface CharacterResponse {
   name: string;
   max_hp: number;
   current_hp: number;
+  /** Armor Class — the target number an attack roll must meet to hit. */
+  armor_class: number;
   /** http(s) portrait URL, or null. */
   portrait_url: string | null;
   ability_scores: AbilityScores;
+  /** Damage-type defenses, e.g. {"fire": "resistance"}; absent type = normal. */
+  resistances: Record<string, Defense>;
   /** Active D&D 2024 condition names. */
   conditions: string[];
 }
@@ -198,6 +228,8 @@ export interface AttackIntentPayload {
   attack_bonus?: number;
   /** Damage dice expression, e.g. "1d8+3" (defaults to "1d6" server-side). */
   damage: string;
+  /** Damage type dealt on a hit (defaults to "slashing" server-side). */
+  damage_type?: DamageType;
 }
 
 /**
@@ -208,12 +240,28 @@ export interface AttackResultPayload {
   type: 'attack';
   attacker_token_id: string;
   target_token_id: string;
-  /** The raw d20 result (1..20). */
+  /** The selected d20 result (1..20). */
   attack_roll: number;
   attack_bonus: number;
   attack_total: number;
+  /** Whether the roll had advantage/disadvantage (derived from conditions). */
+  advantage: Advantage;
+  /** The target's Armor Class the roll was compared against. */
+  armor_class: number;
+  /** Whether the attack hit (total >= AC, or a natural 20). */
+  is_hit: boolean;
+  /** Whether the d20 was a natural 20. */
+  is_critical_hit: boolean;
+  /** Whether the d20 was a natural 1. */
+  is_critical_miss: boolean;
   damage: string;
+  /** The damage type dealt. */
+  damage_type: DamageType;
+  /** The target's defense applied to the damage. */
+  defense: Defense;
+  /** Each damage die result (empty on a miss). */
   damage_rolls: number[];
+  /** Total damage applied to the target (0 on a miss). */
   damage_total: number;
 }
 

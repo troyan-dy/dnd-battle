@@ -32,6 +32,8 @@ const CHARACTER: CharacterResponse = {
     wisdom: 10,
     charisma: 18,
   },
+  armor_class: 10,
+  resistances: {},
   conditions: ['poisoned'],
 };
 

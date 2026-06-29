@@ -93,9 +93,10 @@ def test_attack_intent_parses_via_discriminator_with_defaults() -> None:
     assert intent.payload.type is ActionType.ATTACK
     assert intent.payload.attacker_token_id == attacker
     assert intent.payload.target_token_id == target
-    # Defaults: no bonus, a 1d6 strike.
+    # Defaults: no bonus, a 1d6 slashing strike.
     assert intent.payload.attack_bonus == 0
     assert intent.payload.damage == "1d6"
+    assert intent.payload.damage_type.value == "slashing"
 
 
 def test_attack_intent_rejects_malformed_damage_expression() -> None:
@@ -129,7 +130,14 @@ def test_attack_result_broadcasts_with_roll_breakdown() -> None:
             attack_roll=14,
             attack_bonus=5,
             attack_total=19,
+            advantage="normal",
+            armor_class=15,
+            is_hit=True,
+            is_critical_hit=False,
+            is_critical_miss=False,
             damage="1d8+3",
+            damage_type="fire",
+            defense="resistance",
             damage_rolls=[6],
             damage_total=9,
         ),
@@ -138,9 +146,13 @@ def test_attack_result_broadcasts_with_roll_breakdown() -> None:
     assert dumped["payload"]["type"] == "attack"
     assert dumped["payload"]["attack_total"] == 19
     assert dumped["payload"]["damage_total"] == 9
+    assert dumped["payload"]["is_hit"] is True
+    assert dumped["payload"]["damage_type"] == "fire"
+    assert dumped["payload"]["defense"] == "resistance"
     reparsed = Action.model_validate(dumped)
     assert isinstance(reparsed.payload, AttackResultPayload)
     assert reparsed.payload.damage_rolls == [6]
+    assert reparsed.payload.advantage.value == "normal"
 
 
 def test_unknown_action_type_is_rejected() -> None:

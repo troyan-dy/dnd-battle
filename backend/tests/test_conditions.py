@@ -14,6 +14,7 @@ from app.rules import (
     Advantage,
     Condition,
     ConditionEffect,
+    attack_advantage,
     condition_effect,
     incoming_attack_advantage,
     outgoing_attack_advantage,
@@ -185,6 +186,35 @@ def test_outgoing_attack_advantage_from_disadvantage_condition() -> None:
 def test_outgoing_attack_advantage_cancels_when_both_present() -> None:
     # Invisible (own advantage) + Poisoned (own disadvantage) cancel out.
     assert outgoing_attack_advantage([Condition.INVISIBLE, Condition.POISONED]) is Advantage.NORMAL
+
+
+def test_attack_advantage_with_no_conditions_is_normal() -> None:
+    assert attack_advantage([], []) is Advantage.NORMAL
+
+
+def test_attack_advantage_from_attacker_own_advantage() -> None:
+    # An invisible attacker has advantage on its own attacks.
+    assert attack_advantage([Condition.INVISIBLE], []) is Advantage.ADVANTAGE
+
+
+def test_attack_advantage_from_target_condition() -> None:
+    # Attacks against a restrained target have advantage.
+    assert attack_advantage([], [Condition.RESTRAINED]) is Advantage.ADVANTAGE
+
+
+def test_attack_advantage_from_attacker_disadvantage() -> None:
+    # A poisoned attacker has disadvantage on its attacks.
+    assert attack_advantage([Condition.POISONED], []) is Advantage.DISADVANTAGE
+
+
+def test_attack_advantage_cancels_across_both_combatants() -> None:
+    # Attacker advantage (invisible) + a disadvantage source cancel to normal.
+    assert attack_advantage([Condition.INVISIBLE], [Condition.INVISIBLE]) is Advantage.NORMAL
+
+
+def test_attack_advantage_combines_sources_to_advantage() -> None:
+    # Two advantage sources (attacker invisible + target restrained) still net advantage.
+    assert attack_advantage([Condition.INVISIBLE], [Condition.RESTRAINED]) is Advantage.ADVANTAGE
 
 
 def test_condition_effect_is_frozen() -> None:

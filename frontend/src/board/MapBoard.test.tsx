@@ -244,6 +244,8 @@ describe('MapBoard', () => {
               wisdom: 10,
               charisma: 10,
             },
+            armor_class: 10,
+            resistances: {},
             conditions: [],
           },
         ],
@@ -296,6 +298,8 @@ describe('MapBoard', () => {
               wisdom: 10,
               charisma: 10,
             },
+            armor_class: 10,
+            resistances: {},
             conditions: [],
           },
         ],
@@ -338,6 +342,8 @@ describe('MapBoard', () => {
               wisdom: 10,
               charisma: 10,
             },
+            armor_class: 10,
+            resistances: {},
             conditions: [],
           },
           {
@@ -355,6 +361,8 @@ describe('MapBoard', () => {
               wisdom: 10,
               charisma: 10,
             },
+            armor_class: 10,
+            resistances: {},
             conditions: [],
           },
         ],
@@ -377,7 +385,14 @@ describe('MapBoard', () => {
         attack_roll: 14,
         attack_bonus: 2,
         attack_total: 16,
+        advantage: 'normal',
+        armor_class: 12,
+        is_hit: true,
+        is_critical_hit: false,
+        is_critical_miss: false,
         damage: '1d6',
+        damage_type: 'slashing',
+        defense: 'normal',
         damage_rolls: [5],
         damage_total: 7,
       },
@@ -389,7 +404,7 @@ describe('MapBoard', () => {
     // Target HP dropped by the rolled damage and the log shows the line.
     expect(screen.getByText('18/25')).toBeInTheDocument();
     expect(screen.getByRole('log')).toHaveTextContent(
-      'Goblin attacks Aria: d20 (14) +2 = 16; 1d6 → 7 damage',
+      'Goblin attacks Aria: d20 (14) +2 = 16 vs AC 12 — hit; 1d6 → 7 damage',
     );
   });
 
@@ -424,6 +439,8 @@ describe('MapBoard', () => {
               wisdom: 10,
               charisma: 10,
             },
+            armor_class: 10,
+            resistances: {},
             conditions: [],
           },
           {
@@ -441,6 +458,8 @@ describe('MapBoard', () => {
               wisdom: 10,
               charisma: 10,
             },
+            armor_class: 10,
+            resistances: {},
             conditions: [],
           },
         ],

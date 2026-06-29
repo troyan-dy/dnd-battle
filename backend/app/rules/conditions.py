@@ -304,3 +304,26 @@ def outgoing_attack_advantage(conditions: Iterable[Condition]) -> Advantage:
         any(e.own_attacks_have_advantage for e in effects),
         any(e.own_attacks_have_disadvantage for e in effects),
     )
+
+
+def attack_advantage(
+    attacker_conditions: Iterable[Condition],
+    target_conditions: Iterable[Condition],
+) -> Advantage:
+    """The net Advantage for an attack, composing BOTH combatants' conditions.
+
+    Gathers every Advantage source (the attacker's own-attack effects + the
+    effects of attacks *against* the target) and every Disadvantage source across
+    both creatures, then applies the 2024 cancellation rule ONCE: any Advantage
+    combined with any Disadvantage yields a normal roll. This is what an attack's
+    resolution feeds to :func:`app.rules.attack.resolve_attack`.
+    """
+    attacker = [CONDITION_EFFECTS[c] for c in attacker_conditions]
+    target = [CONDITION_EFFECTS[c] for c in target_conditions]
+    has_advantage = any(e.own_attacks_have_advantage for e in attacker) or any(
+        e.attacks_against_have_advantage for e in target
+    )
+    has_disadvantage = any(e.own_attacks_have_disadvantage for e in attacker) or any(
+        e.attacks_against_have_disadvantage for e in target
+    )
+    return _combine_advantage(has_advantage, has_disadvantage)

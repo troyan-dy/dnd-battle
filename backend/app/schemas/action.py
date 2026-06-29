@@ -34,6 +34,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.rules.attack import Advantage
+from app.rules.damage import DamageType, Defense
 from app.rules.dice import D20_SIDES, DiceExpressionError, parse_dice
 from app.schemas.room import GRID_COORD_MAX, GRID_COORD_MIN
 
@@ -57,6 +59,8 @@ ATTACK_BONUS_MIN = -20
 ATTACK_BONUS_MAX = 20
 DAMAGE_EXPR_MAX_LENGTH = 32
 DEFAULT_ATTACK_DAMAGE = "1d6"
+# The damage type an attack deals if the client omits one (the generic weapon hit).
+DEFAULT_ATTACK_DAMAGE_TYPE = DamageType.SLASHING
 
 
 class ActionType(enum.StrEnum):
@@ -147,6 +151,10 @@ class AttackIntentPayload(BaseModel):
         max_length=DAMAGE_EXPR_MAX_LENGTH,
         description="Damage dice expression, e.g. '1d8+3'.",
     )
+    damage_type: DamageType = Field(
+        default=DEFAULT_ATTACK_DAMAGE_TYPE,
+        description="The damage type dealt on a hit (used for the target's resistances).",
+    )
 
     @field_validator("damage")
     @classmethod
@@ -162,25 +170,36 @@ class AttackIntentPayload(BaseModel):
 class AttackResultPayload(BaseModel):
     """Server → all clients: the resolved outcome of an attack — the log line.
 
-    Built by the server after rolling: the raw d20, the bonus + total, and the
-    rolled damage breakdown applied to the target. This is what everyone sees in
-    the shared combat log. It is BROADCAST-only (it never arrives as a client
+    Built by the server after rolling: the raw d20, the bonus + total, whether it
+    hit the target's Armor Class, and (on a hit) the rolled damage breakdown after
+    the target's resistance/vulnerability/immunity is applied. This is what everyone
+    sees in the shared combat log. It is BROADCAST-only (it never arrives as a client
     intent), so it appears in the broadcast union, not the intent union.
 
-    Basic flow (Phase 5): the attack always lands and applies its damage. Hit/miss
-    versus AC and advantage/disadvantage are the Phase-6 rules-engine task; the
-    ``attack_total`` is already carried here so that step can gate on it later.
+    Rules wiring (Phase 6): the d20 total is compared against the target's AC via
+    :func:`app.rules.attack.resolve_attack` (a natural 20 always hits, a natural 1
+    always misses); ``advantage`` is derived from the combatants' conditions. Damage
+    is rolled and applied ONLY on a hit, and is reduced by the target's ``defense``
+    for ``damage_type`` via :func:`app.rules.damage.resolve_damage`. On a miss the
+    ``damage_rolls`` are empty and ``damage_total`` is 0.
     """
 
     type: Literal[ActionType.ATTACK] = ActionType.ATTACK
     attacker_token_id: uuid.UUID = Field(description="Token that made the attack.")
     target_token_id: uuid.UUID = Field(description="Token that was attacked.")
-    attack_roll: int = Field(ge=1, le=D20_SIDES, description="The raw d20 result (1..20).")
+    attack_roll: int = Field(ge=1, le=D20_SIDES, description="The selected d20 result (1..20).")
     attack_bonus: int = Field(description="Flat bonus added to the d20 roll.")
     attack_total: int = Field(description="attack_roll + attack_bonus.")
+    advantage: Advantage = Field(description="Whether the roll had advantage/disadvantage.")
+    armor_class: int = Field(description="The target's Armor Class the roll was compared against.")
+    is_hit: bool = Field(description="Whether the attack hit (total >= AC, or a natural 20).")
+    is_critical_hit: bool = Field(description="Whether the d20 was a natural 20.")
+    is_critical_miss: bool = Field(description="Whether the d20 was a natural 1.")
     damage: str = Field(description="The damage dice expression that was rolled.")
-    damage_rolls: list[int] = Field(description="Each individual damage die result.")
-    damage_total: int = Field(ge=0, description="Total damage applied to the target.")
+    damage_type: DamageType = Field(description="The damage type dealt.")
+    defense: Defense = Field(description="The target's defense applied to the damage.")
+    damage_rolls: list[int] = Field(description="Each damage die result (empty on miss).")
+    damage_total: int = Field(ge=0, description="Total damage applied to the target (0 on miss).")
 
 
 class EndTurnPayload(BaseModel):

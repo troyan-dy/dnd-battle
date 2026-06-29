@@ -44,10 +44,25 @@ function formatAttackEntry(
 ): string {
   const attacker = nameOf(payload.attacker_token_id);
   const target = nameOf(payload.target_token_id);
+  const adv =
+    payload.advantage === 'advantage'
+      ? ' (adv)'
+      : payload.advantage === 'disadvantage'
+        ? ' (dis)'
+        : '';
+  const roll =
+    `d20 (${payload.attack_roll})${adv} ${formatBonus(payload.attack_bonus)} = ` +
+    `${payload.attack_total} vs AC ${payload.armor_class}`;
+  if (!payload.is_hit) {
+    const miss = payload.is_critical_miss ? 'critical miss' : 'miss';
+    return `${attacker} attacks ${target}: ${roll} — ${miss}`;
+  }
+  const hit = payload.is_critical_hit ? 'critical hit' : 'hit';
+  const resisted =
+    payload.defense === 'normal' ? '' : ` (${payload.damage_type} ${payload.defense})`;
   return (
-    `${attacker} attacks ${target}: ` +
-    `d20 (${payload.attack_roll}) ${formatBonus(payload.attack_bonus)} = ${payload.attack_total}; ` +
-    `${payload.damage} → ${payload.damage_total} damage`
+    `${attacker} attacks ${target}: ${roll} — ${hit}; ` +
+    `${payload.damage} → ${payload.damage_total} damage${resisted}`
   );
 }
 

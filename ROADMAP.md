@@ -60,7 +60,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Attack roll vs AC; advantage/disadvantage
 - [x] Damage rolls + types; basic resistances
 - [x] Conditions (2024 list) with their mechanical effects
-- [ ] Wire rules engine into the attack/damage actions from Phase 5
+- [x] Wire rules engine into the attack/damage actions from Phase 5
 
 ## Phase 7 — Permissions, persistence, polish
 - [ ] Server-enforced permissions: player acts only on own token; host can do all

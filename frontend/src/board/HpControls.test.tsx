@@ -28,6 +28,8 @@ function placed(id: string, characterName: string): PlacedToken {
       wisdom: 10,
       charisma: 10,
     },
+    armor_class: 10,
+    resistances: {},
     conditions: [],
   };
   return { token, character };

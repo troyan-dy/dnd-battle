@@ -31,6 +31,14 @@ class Character(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     max_hp: Mapped[int] = mapped_column(Integer, nullable=False)
     current_hp: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Armor Class — the target number an attack roll must meet to hit (2024 PHB).
+    # Defaults to 10 (the unarmored baseline); the rules engine bounds it 1..50.
+    armor_class: Mapped[int] = mapped_column(
+        Integer, default=10, server_default="10", nullable=False
+    )
+    # Damage resistances/vulnerabilities/immunities keyed by damage type
+    # (e.g. {"fire": "resistance"}); an absent type means a normal relationship.
+    resistances: Mapped[dict[str, Any]] = mapped_column(SAJSON, default=dict, nullable=False)
     # Optional portrait image URL (DM-provided). A full upload pipeline can replace
     # this later; a plain URL keeps the value reconnect-safe and storage-free.
     portrait_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)

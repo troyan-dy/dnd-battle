@@ -16,7 +16,14 @@ function attackPayload(overrides: Partial<AttackResultPayload> = {}): AttackResu
     attack_roll: 14,
     attack_bonus: 5,
     attack_total: 19,
+    advantage: 'normal',
+    armor_class: 15,
+    is_hit: true,
+    is_critical_hit: false,
+    is_critical_miss: false,
     damage: '1d8+3',
+    damage_type: 'slashing',
+    defense: 'normal',
     damage_rolls: [6],
     damage_total: 9,
     ...overrides,
@@ -79,14 +86,48 @@ describe('formatLogEntry', () => {
   const names: Record<string, string> = { ta: 'Goblin', tb: 'Aria' };
   const nameOf = (id: string) => names[id] ?? '?';
 
-  it('formats an attack line resolving names', () => {
+  it('formats an attack hit line resolving names', () => {
     const line = formatLogEntry(attackPayload(), nameOf);
-    expect(line).toBe('Goblin attacks Aria: d20 (14) +5 = 19; 1d8+3 → 9 damage');
+    expect(line).toBe('Goblin attacks Aria: d20 (14) +5 = 19 vs AC 15 — hit; 1d8+3 → 9 damage');
   });
 
   it('renders a negative attack bonus with its sign', () => {
     const line = formatLogEntry(attackPayload({ attack_bonus: -1, attack_total: 13 }), () => 'X');
     expect(line).toContain('(14) -1 = 13');
+  });
+
+  it('formats a miss line with no damage', () => {
+    const line = formatLogEntry(
+      attackPayload({ attack_roll: 3, attack_total: 8, is_hit: false }),
+      nameOf,
+    );
+    expect(line).toBe('Goblin attacks Aria: d20 (3) +5 = 8 vs AC 15 — miss');
+  });
+
+  it('flags a critical hit and a critical miss', () => {
+    const crit = formatLogEntry(
+      attackPayload({ attack_roll: 20, attack_total: 25, is_critical_hit: true }),
+      nameOf,
+    );
+    expect(crit).toContain('critical hit');
+    const fumble = formatLogEntry(
+      attackPayload({ attack_roll: 1, attack_total: 6, is_hit: false, is_critical_miss: true }),
+      nameOf,
+    );
+    expect(fumble).toContain('critical miss');
+  });
+
+  it('notes the damage type and defense when the target resists', () => {
+    const line = formatLogEntry(
+      attackPayload({ damage_type: 'fire', defense: 'resistance', damage_total: 4 }),
+      nameOf,
+    );
+    expect(line).toContain('4 damage (fire resistance)');
+  });
+
+  it('marks an advantaged roll', () => {
+    const line = formatLogEntry(attackPayload({ advantage: 'advantage' }), nameOf);
+    expect(line).toContain('(14) (adv)');
   });
 
   it('formats a move line', () => {

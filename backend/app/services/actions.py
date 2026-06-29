@@ -45,7 +45,9 @@ from app.models.character import Character
 from app.models.enums import ParticipantRole
 from app.models.room import Room
 from app.models.token import Token
-from app.rules.dice import roll_d20, roll_dice
+from app.rules.attack import resolve_attack as roll_attack
+from app.rules.conditions import Condition, attack_advantage
+from app.rules.damage import DamageType, Defense, resolve_damage
 from app.schemas.action import (
     ActionIntent,
     ActionPayload,
@@ -56,6 +58,7 @@ from app.schemas.action import (
     HealPayload,
     MovePayload,
 )
+from app.schemas.room import ARMOR_CLASS_DEFAULT
 from app.services.initiative import active_character_id, advance_turn
 
 # Uniform rejection messages. Kept generic so a player cannot probe the board for
@@ -236,6 +239,32 @@ async def apply_action(
             await advance_turn(session, room=room)
 
 
+def _parse_conditions(raw: list[str]) -> list[Condition]:
+    """Map stored condition-name strings to :class:`Condition`, ignoring unknowns.
+
+    Defensive: a stale or unrecognised condition name (e.g. from an older client)
+    is silently skipped rather than crashing attack resolution.
+    """
+    parsed: list[Condition] = []
+    for name in raw:
+        try:
+            parsed.append(Condition(name))
+        except ValueError:
+            continue
+    return parsed
+
+
+def _target_defense(resistances: dict[str, object], damage_type: DamageType) -> Defense:
+    """The target's :class:`Defense` against ``damage_type`` (``NORMAL`` if absent/invalid)."""
+    raw = resistances.get(damage_type.value)
+    if not isinstance(raw, str):
+        return Defense.NORMAL
+    try:
+        return Defense(raw)
+    except ValueError:
+        return Defense.NORMAL
+
+
 async def resolve_attack(
     session: AsyncSession,
     *,
@@ -243,40 +272,83 @@ async def resolve_attack(
     payload: AttackIntentPayload,
     rng: random.Random,
 ) -> AttackResultPayload:
-    """Roll a VALIDATED attack, apply its damage, and return the broadcast result.
+    """Roll a VALIDATED attack through the rules engine and return the broadcast result.
 
-    Server-authoritative roll (CLAUDE.md rule 1): the d20 and the damage dice are
-    rolled HERE with the injected ``rng`` — the client never supplies them. The
-    rolled damage is applied to the target character's durable HP (clamped at 0)
-    BEFORE broadcast, so :func:`app.services.board.build_board_state` stays
+    Server-authoritative roll (CLAUDE.md rule 1): the d20 and damage dice are rolled
+    HERE with the injected ``rng`` — the client never supplies them. The rules engine
+    (CLAUDE.md rule 4) does all the tabletop math:
+
+    * advantage/disadvantage is derived from BOTH combatants' conditions via
+      :func:`app.rules.conditions.attack_advantage`;
+    * :func:`app.rules.attack.resolve_attack` rolls the d20 against the TARGET's
+      Armor Class (natural 20 always hits, natural 1 always misses);
+    * ONLY on a hit is damage rolled via :func:`app.rules.damage.resolve_damage`,
+      reduced by the target's resistance/vulnerability/immunity for the damage type.
+
+    The resulting damage is applied to the target character's durable HP (clamped at
+    0) BEFORE broadcast, so :func:`app.services.board.build_board_state` stays
     authoritative and a reconnecting client rebuilds the post-attack board
     (reconnect-safe, CLAUDE.md rule 2). The caller commits.
-
-    Basic flow (Phase 5): the attack always lands and applies its damage. Comparing
-    ``attack_total`` against the target's AC (hit/miss) and advantage/disadvantage
-    are the Phase-6 rules-engine task; the totals are already carried in the result.
 
     The ``None`` guards are defensive: :func:`validate_intent` already proved both
     tokens (and the target's character) exist in ``room_id``.
     """
-    attack_roll = roll_d20(rng=rng)
-    attack_total = attack_roll + payload.attack_bonus
-    damage = roll_dice(payload.damage, rng=rng)
-    damage_total = max(0, damage.total)
+    attacker_conditions: list[Condition] = []
+    attacker_token = await session.get(Token, payload.attacker_token_id)
+    if attacker_token is not None and attacker_token.room_id == room_id:
+        attacker_char = await session.get(Character, attacker_token.character_id)
+        if attacker_char is not None:
+            attacker_conditions = _parse_conditions(attacker_char.conditions)
 
+    target_char: Character | None = None
+    armor_class = ARMOR_CLASS_DEFAULT
+    target_conditions: list[Condition] = []
     target_token = await session.get(Token, payload.target_token_id)
     if target_token is not None and target_token.room_id == room_id:
-        character = await session.get(Character, target_token.character_id)
-        if character is not None:
-            character.current_hp = max(0, character.current_hp - damage_total)
+        target_char = await session.get(Character, target_token.character_id)
+        if target_char is not None:
+            armor_class = target_char.armor_class
+            target_conditions = _parse_conditions(target_char.conditions)
+
+    advantage = attack_advantage(attacker_conditions, target_conditions)
+    roll = roll_attack(
+        armor_class=armor_class,
+        attack_bonus=payload.attack_bonus,
+        advantage=advantage,
+        rng=rng,
+    )
+
+    damage_rolls: list[int] = []
+    damage_total = 0
+    defense = Defense.NORMAL
+    if roll.is_hit:
+        resistances = target_char.resistances if target_char is not None else {}
+        defense = _target_defense(resistances, payload.damage_type)
+        damage = resolve_damage(
+            expression=payload.damage,
+            damage_type=payload.damage_type,
+            defense=defense,
+            rng=rng,
+        )
+        damage_rolls = list(damage.rolls)
+        damage_total = damage.total
+        if target_char is not None:
+            target_char.current_hp = max(0, target_char.current_hp - damage_total)
 
     return AttackResultPayload(
         attacker_token_id=payload.attacker_token_id,
         target_token_id=payload.target_token_id,
-        attack_roll=attack_roll,
+        attack_roll=roll.d20,
         attack_bonus=payload.attack_bonus,
-        attack_total=attack_total,
+        attack_total=roll.total,
+        advantage=advantage,
+        armor_class=armor_class,
+        is_hit=roll.is_hit,
+        is_critical_hit=roll.is_critical_hit,
+        is_critical_miss=roll.is_critical_miss,
         damage=payload.damage,
-        damage_rolls=list(damage.rolls),
+        damage_type=payload.damage_type,
+        defense=defense,
+        damage_rolls=damage_rolls,
         damage_total=damage_total,
     )
