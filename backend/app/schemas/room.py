@@ -236,3 +236,18 @@ class ResolveInviteResponse(BaseModel):
     participant_id: uuid.UUID
     role: ParticipantRole
     character_id: uuid.UUID | None
+
+
+class BoardState(BaseModel):
+    """The FULL current board snapshot pushed to a client when it (re)joins a room.
+
+    This is the authoritative state a client renders the board from: every placed
+    ``token`` plus the ``character`` stat blocks they bind to. It is a complete,
+    idempotent read (reconnect-safe, CLAUDE.md rule 2) — reloading a link yields
+    the same snapshot, never a delta. Live mutation / the versioned Action
+    protocol are separate Phase 4 tasks.
+    """
+
+    room_id: uuid.UUID
+    tokens: list[TokenResponse]
+    characters: list[CharacterResponse]

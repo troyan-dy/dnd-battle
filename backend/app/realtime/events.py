@@ -1,15 +1,21 @@
 """Socket.IO event handlers for the realtime board transport.
 
-Scope of this module (Phase 4, first task — "Socket.IO mounted; client connects"):
-establish the connection lifecycle and a minimal room-join handshake so a client
-can connect and be placed into the Socket.IO room that mirrors its D&D ``Room``
-id. Sending the FULL current BoardState on join, the versioned Action protocol,
-server-side intent validation and broadcasting are the *next* Phase 4 tasks and
-are deliberately NOT implemented here.
+This module owns the connection lifecycle and the authenticated ``join``
+handshake. On ``join`` the client presents its invite **token** (the credential it
+already holds — same one ``GET /invites/{token}`` resolves); the server:
 
-Permissions note (CLAUDE.md rule 3): identity/permission binding via the invite
-token is enforced when BoardState-on-join lands. This task is pure transport
-plumbing, so ``connect``/``join`` accept without an auth check yet.
+1. resolves the token to an identity via :func:`resolve_active_invite` — the SAME
+   security rules as the HTTP resolve (unknown / revoked / expired -> uniform
+   failure, no enumeration oracle). The ``roomId`` is taken from the *resolved
+   link*, never from the client, so a visitor can only join the room their link
+   binds them to.
+2. places the client into the Socket.IO room ``room:{roomId}``;
+3. pushes the FULL current :class:`BoardState` (every token + character) so the
+   client can render immediately. This is a complete, idempotent read, so a client
+   that reloads its link resyncs cleanly (reconnect-safe, CLAUDE.md rule 2).
+
+The versioned Action protocol, server-side intent validation and broadcasting are
+later Phase 4 tasks and are intentionally not implemented here.
 
 Handler bodies are kept as plain, fully-typed module functions and registered via
 ``sio.on(name, handler)`` (rather than decorators) so they stay unit-testable with
@@ -18,11 +24,27 @@ a fake server and so static typing is unaffected by the untyped Socket.IO librar
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.session import async_session_factory
+from app.services.board import build_board_state
+from app.services.invites import resolve_active_invite
 
 # Socket.IO rooms share a flat namespace per server; prefix the D&D Room id so
 # board rooms can never collide with any other room name we introduce later.
 ROOM_PREFIX = "room:"
+
+# A zero-arg callable returning an async-session context manager. Defaults to the
+# app session factory; tests inject one bound to an in-memory database.
+SessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
+
+# Uniform failure for a join whose token is missing or not resolvable. Mirrors the
+# HTTP resolver: never reveals whether a token never existed vs. was revoked/expired.
+_INVALID_TOKEN_ERROR = "Invalid or expired invite link."
 
 
 def room_name(room_id: str) -> str:
@@ -30,10 +52,10 @@ def room_name(room_id: str) -> str:
     return f"{ROOM_PREFIX}{room_id}"
 
 
-def _extract_room_id(data: Any) -> str | None:
-    """Pull a non-blank ``roomId`` string out of an arbitrary client payload."""
+def _extract_token(data: Any) -> str | None:
+    """Pull a non-blank ``token`` string out of an arbitrary client payload."""
     if isinstance(data, dict):
-        raw = data.get("roomId")
+        raw = data.get("token")
         if isinstance(raw, str) and raw.strip():
             return raw.strip()
     return None
@@ -42,8 +64,8 @@ def _extract_room_id(data: Any) -> str | None:
 async def handle_connect(sio: Any, sid: str, environ: Any, auth: Any = None) -> bool:
     """Accept a new Socket.IO connection.
 
-    Returning ``True`` accepts the connection. No identity/permission check yet
-    (see module docstring); accepting here keeps this transport task isolated.
+    Returning ``True`` accepts the connection. Identity is bound on ``join`` (which
+    carries the invite token), so the bare connection accepts without an auth check.
     """
     return True
 
@@ -57,24 +79,49 @@ async def handle_disconnect(sio: Any, sid: str) -> None:
     return None
 
 
-async def handle_join(sio: Any, sid: str, data: Any) -> dict[str, Any]:
-    """Place a connected client into the Socket.IO room for ``data['roomId']``.
+async def handle_join(
+    sio: Any,
+    sid: str,
+    data: Any,
+    *,
+    session_factory: SessionFactory = async_session_factory,
+) -> dict[str, Any]:
+    """Authenticate a join via invite token, enter the room, and push BoardState.
 
     The return value is delivered to the client's ``emit`` acknowledgement
-    callback. When ``roomId`` is missing or blank, emit an ``error`` event to the
-    caller and return a failure ack instead of joining anything.
+    callback. On any failure (missing or non-resolvable token) emit an ``error``
+    event to the caller and return a failure ack without joining anything.
     """
-    room_id = _extract_room_id(data)
-    if room_id is None:
-        error: dict[str, Any] = {"error": "roomId is required to join a room."}
-        await sio.emit("error", error, to=sid)
-        return {"ok": False, **error}
+    token = _extract_token(data)
+    if token is None:
+        return await _reject_join(sio, sid, "token is required to join a room.")
 
+    async with session_factory() as session:
+        resolved = await resolve_active_invite(session, token)
+        if resolved is None:
+            return await _reject_join(sio, sid, _INVALID_TOKEN_ERROR)
+        board = await build_board_state(session, resolved.room_id)
+
+    room_id = str(resolved.room_id)
     await sio.enter_room(sid, room_name(room_id))
-    # Notify just this client that the join succeeded. The full BoardState payload
-    # is added by the next Phase 4 task; for now this is a lightweight handshake.
-    await sio.emit("joined", {"roomId": room_id}, to=sid)
-    return {"ok": True, "roomId": room_id}
+    # Push the full authoritative snapshot to just this client.
+    await sio.emit("boardState", board.model_dump(mode="json"), to=sid)
+
+    character_id = str(resolved.character_id) if resolved.character_id is not None else None
+    return {
+        "ok": True,
+        "roomId": room_id,
+        "participantId": str(resolved.participant_id),
+        "role": resolved.role.value,
+        "characterId": character_id,
+    }
+
+
+async def _reject_join(sio: Any, sid: str, message: str) -> dict[str, Any]:
+    """Emit a join ``error`` to the caller and return a failure ack."""
+    error: dict[str, Any] = {"error": message}
+    await sio.emit("error", error, to=sid)
+    return {"ok": False, **error}
 
 
 def register_handlers(sio: Any) -> None:

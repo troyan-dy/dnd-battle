@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { BoardState } from '../api/types';
+
 // A controllable fake Socket: records handlers and emits, lets tests trigger
 // lifecycle events and ack callbacks deterministically (no real network).
 interface FakeSocket {
@@ -36,12 +38,12 @@ afterEach(() => {
 });
 
 describe('createBoardSocket', () => {
-  it('connects with the socket.io path and joins on connect', async () => {
+  it('connects with the socket.io path and joins with the token on connect', async () => {
     const fake = makeFakeSocket();
     ioMock.mockReturnValue(fake);
     const { createBoardSocket, SOCKETIO_PATH } = await import('./connection');
 
-    const socket = createBoardSocket('room-9', 'http://api.test');
+    const socket = createBoardSocket('secret-token', { url: 'http://api.test' });
 
     expect(socket).toBe(fake);
     const [url, opts] = ioMock.mock.calls[0] as [string, { path: string }];
@@ -51,12 +53,12 @@ describe('createBoardSocket', () => {
     // No join emitted until the socket actually connects...
     expect(fake.emit).not.toHaveBeenCalled();
 
-    // ...then the connect handler emits the join intent for this room.
+    // ...then the connect handler emits the token-authenticated join intent.
     fake.fire('connect');
     expect(fake.emit).toHaveBeenCalledTimes(1);
-    const [event, payload] = fake.emit.mock.calls[0] as [string, { roomId: string }];
+    const [event, payload] = fake.emit.mock.calls[0] as [string, { token: string }];
     expect(event).toBe('join');
-    expect(payload).toEqual({ roomId: 'room-9' });
+    expect(payload).toEqual({ token: 'secret-token' });
   });
 
   it('re-joins on every reconnect (reconnect-safe)', async () => {
@@ -64,27 +66,48 @@ describe('createBoardSocket', () => {
     ioMock.mockReturnValue(fake);
     const { createBoardSocket } = await import('./connection');
 
-    createBoardSocket('room-9', 'http://api.test');
+    createBoardSocket('secret-token', { url: 'http://api.test' });
 
     fake.fire('connect');
     fake.fire('connect');
     expect(fake.emit).toHaveBeenCalledTimes(2);
   });
+
+  it('surfaces the full BoardState pushed by the server', async () => {
+    const fake = makeFakeSocket();
+    ioMock.mockReturnValue(fake);
+    const { createBoardSocket } = await import('./connection');
+
+    const received: BoardState[] = [];
+    createBoardSocket('secret-token', {
+      url: 'http://api.test',
+      onBoardState: (state) => received.push(state),
+    });
+
+    const snapshot: BoardState = {
+      room_id: 'room-1',
+      tokens: [{ id: 't1', room_id: 'room-1', character_id: 'c1', x: 3, y: 4, size: 1 }],
+      characters: [],
+    };
+    fake.fire('boardState', snapshot);
+
+    expect(received).toEqual([snapshot]);
+  });
 });
 
 describe('joinRoom', () => {
-  it('emits a join intent and resolves with the server ack', async () => {
+  it('emits a token join intent and resolves with the server ack', async () => {
     const fake = makeFakeSocket();
     fake.emit.mockImplementation((_event: string, _payload: unknown, ack: (a: unknown) => void) => {
-      ack({ ok: true, roomId: 'room-3' });
+      ack({ ok: true, roomId: 'room-3', role: 'player', characterId: 'c1' });
     });
     const { joinRoom } = await import('./connection');
 
-    const ack = await joinRoom(fake as never, 'room-3');
+    const ack = await joinRoom(fake as never, 'secret-token');
 
-    expect(ack).toEqual({ ok: true, roomId: 'room-3' });
-    const [event, payload] = fake.emit.mock.calls[0] as [string, { roomId: string }];
+    expect(ack).toEqual({ ok: true, roomId: 'room-3', role: 'player', characterId: 'c1' });
+    const [event, payload] = fake.emit.mock.calls[0] as [string, { token: string }];
     expect(event).toBe('join');
-    expect(payload).toEqual({ roomId: 'room-3' });
+    expect(payload).toEqual({ token: 'secret-token' });
   });
 });

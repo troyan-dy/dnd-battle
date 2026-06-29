@@ -106,3 +106,14 @@ export interface TokenResponse {
   y: number;
   size: number;
 }
+
+/**
+ * The FULL current board snapshot the server pushes to a client when it (re)joins
+ * a room (Socket.IO `boardState` event). Mirrors `app.schemas.room.BoardState`.
+ * A complete, idempotent read — reloading a link yields the same snapshot.
+ */
+export interface BoardState {
+  room_id: string;
+  tokens: TokenResponse[];
+  characters: CharacterResponse[];
+}
