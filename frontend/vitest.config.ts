@@ -1,5 +1,5 @@
-import { defineConfig } from 'vitest/config'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
 
 // Standalone Vitest config. Kept separate from vite.config.ts because Vitest
 // ships its own nested Vite, whose plugin types clash with the project's Vite 8
@@ -12,4 +12,4 @@ export default defineConfig({
     setupFiles: './src/setupTests.ts',
     css: false,
   },
-})
+});
