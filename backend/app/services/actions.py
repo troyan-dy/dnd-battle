@@ -14,7 +14,8 @@ What is validated WHERE:
 * This module adds the **state-aware** + **permission** checks that need the live
   board:
 
-  - the referenced token actually exists and belongs to the *actor's* room;
+  - the referenced token actually exists and belongs to the *actor's* room
+    (applies to ``move``, ``damage`` and ``heal``);
   - a ``player`` may only target a token bound to their OWN character; a ``host``
     may target any token in the room (CLAUDE.md rule 3);
   - ``mark`` carries no token, so any authenticated participant in the room may
@@ -48,6 +49,7 @@ from app.schemas.action import (
     ActionPayload,
     DamagePayload,
     EndTurnPayload,
+    HealPayload,
     MovePayload,
 )
 from app.services.initiative import active_character_id, advance_turn
@@ -90,7 +92,7 @@ async def validate_intent(
 
     # Token-targeting actions must reference a token in the actor's room that the
     # actor is permitted to act on.
-    if isinstance(payload, (MovePayload, DamagePayload)):
+    if isinstance(payload, (MovePayload, DamagePayload, HealPayload)):
         await _authorize_token_target(
             session,
             room_id=room_id,
@@ -172,6 +174,7 @@ async def apply_action(
 
     * ``move``    -> update the token's grid coordinates.
     * ``damage``  -> reduce the bound character's current HP, clamped at 0.
+    * ``heal``    -> restore the bound character's current HP, clamped at max HP.
     * ``endTurn`` -> advance the room's initiative pointer to the next combatant.
     * ``mark``    -> transient ping, carries no durable board state -> no row change.
 
@@ -189,6 +192,12 @@ async def apply_action(
             character = await session.get(Character, token.character_id)
             if character is not None:
                 character.current_hp = max(0, character.current_hp - payload.amount)
+    elif isinstance(payload, HealPayload):
+        token = await session.get(Token, payload.token_id)
+        if token is not None and token.room_id == room_id:
+            character = await session.get(Character, token.character_id)
+            if character is not None:
+                character.current_hp = min(character.max_hp, character.current_hp + payload.amount)
     elif isinstance(payload, EndTurnPayload):
         room = await session.get(Room, room_id)
         if room is not None:

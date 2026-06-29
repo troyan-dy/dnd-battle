@@ -26,6 +26,16 @@ describe('Action protocol types', () => {
     }
   });
 
+  it('narrows the heal payload by its discriminator', () => {
+    const payload: ActionPayload = { type: 'heal', token_id: 't1', amount: 4 };
+    if (payload.type === 'heal') {
+      expect(payload.amount).toBe(4);
+      expect(payload.token_id).toBe('t1');
+    } else {
+      throw new Error('expected a heal payload');
+    }
+  });
+
   it('accepts a minimal intent and a full server broadcast', () => {
     const intent: ActionIntent = { payload: { type: 'endTurn' } };
     expect(intent.payload.type).toBe('endTurn');

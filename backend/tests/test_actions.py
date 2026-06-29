@@ -16,6 +16,7 @@ from app.schemas.action import (
     ActionType,
     DamagePayload,
     EndTurnPayload,
+    HealPayload,
     MarkPayload,
     MovePayload,
 )
@@ -56,6 +57,23 @@ def test_damage_and_endturn_payloads_select_correct_member() -> None:
     end = ActionIntent.model_validate({"payload": {"type": "endTurn"}})
     assert isinstance(end.payload, EndTurnPayload)
     assert end.payload.type is ActionType.END_TURN
+
+
+def test_heal_payload_selects_correct_member() -> None:
+    token_id = uuid.uuid4()
+    intent = ActionIntent.model_validate(
+        {"payload": {"type": "heal", "token_id": str(token_id), "amount": 5}}
+    )
+    assert isinstance(intent.payload, HealPayload)
+    assert intent.payload.type is ActionType.HEAL
+    assert intent.payload.token_id == token_id
+    assert intent.payload.amount == 5
+
+
+@pytest.mark.parametrize("bad_amount", [0, -1, 1001])
+def test_heal_amount_bounds_enforced(bad_amount: int) -> None:
+    with pytest.raises(ValidationError):
+        HealPayload(token_id=uuid.uuid4(), amount=bad_amount)
 
 
 def test_unknown_action_type_is_rejected() -> None:

@@ -152,7 +152,7 @@ export interface BoardState {
 /** Current Action-protocol version (mirrors ACTION_PROTOCOL_VERSION). */
 export const ACTION_PROTOCOL_VERSION = 1;
 
-export type ActionType = 'move' | 'mark' | 'damage' | 'endTurn';
+export type ActionType = 'move' | 'mark' | 'damage' | 'heal' | 'endTurn';
 
 /** Move a token to a grid cell. */
 export interface MovePayload {
@@ -171,9 +171,16 @@ export interface MarkPayload {
   label?: string | null;
 }
 
-/** Apply damage to a token. */
+/** Apply damage to a token (reduces HP, clamped at 0). */
 export interface DamagePayload {
   type: 'damage';
+  token_id: string;
+  amount: number;
+}
+
+/** Heal a token (restores HP, clamped at the character's max HP). */
+export interface HealPayload {
+  type: 'heal';
   token_id: string;
   amount: number;
 }
@@ -184,7 +191,8 @@ export interface EndTurnPayload {
 }
 
 /** Discriminated union of every concrete action payload (key: `type`). */
-export type ActionPayload = MovePayload | MarkPayload | DamagePayload | EndTurnPayload;
+export type ActionPayload =
+  MovePayload | MarkPayload | DamagePayload | HealPayload | EndTurnPayload;
 
 /**
  * Client → server: a request to perform a board action. Carries only the

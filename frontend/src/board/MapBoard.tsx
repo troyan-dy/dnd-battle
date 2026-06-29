@@ -30,7 +30,9 @@ import GridLayer from './GridLayer';
 import { DEFAULT_GRID, MIN_CELL_SIZE, type GridConfig } from './grid';
 import TokenLayer from './TokenLayer';
 import MarkLayer from './MarkLayer';
+import HpControls from './HpControls';
 import InitiativeTracker from './InitiativeTracker';
+import { applyHpAction } from './hp';
 import { advanceInitiative, EMPTY_INITIATIVE } from './initiative';
 import { addMark, markFromAction, pruneExpired, type BoardMark } from './marks';
 import { joinTokens, worldToCell } from './tokens';
@@ -108,6 +110,10 @@ export default function MapBoard({
   const [initiative, setInitiative] = useState<InitiativeState>(EMPTY_INITIATIVE);
   const [pingMode, setPingMode] = useState(false);
   const socketRef = useRef<Socket | null>(null);
+  // Always-fresh board ref so the once-registered onAction handler can resolve a
+  // damaged/healed token's character without capturing a stale `board` closure.
+  const boardRef = useRef(board);
+  boardRef.current = board;
 
   const updateGrid = (patch: Partial<GridConfig>) => setGrid((g) => ({ ...g, ...patch }));
 
@@ -157,6 +163,16 @@ export default function MapBoard({
           // The server broadcasts only the intent; advance the local pointer the
           // same way it does. The next boardState push reconciles any drift.
           setInitiative((i) => advanceInitiative(i));
+          return;
+        }
+        if (action.payload.type === 'damage' || action.payload.type === 'heal') {
+          // Reflect the authoritative HP change live: resolve the targeted token's
+          // character and clamp-apply the delta (mirrors the server).
+          const payload = action.payload;
+          const target = boardRef.current.authoritative.get(payload.token_id);
+          if (target) {
+            setCharacters((cs) => applyHpAction(cs, target.character_id, payload));
+          }
           return;
         }
         setBoard((b) => applyAction(b, action));
@@ -237,6 +253,25 @@ export default function MapBoard({
     void emitAction(socket, { type: 'endTurn' });
   }, []);
 
+  // Host applies damage / healing to a token. We only emit the intent; the
+  // server validates + applies the durable HP change and broadcasts it back,
+  // which updates the rendered HP for everyone (including us) via onAction.
+  const handleDamage = useCallback((tokenId: string, amount: number) => {
+    const socket = socketRef.current;
+    if (!socket) {
+      return;
+    }
+    void emitAction(socket, { type: 'damage', token_id: tokenId, amount });
+  }, []);
+
+  const handleHeal = useCallback((tokenId: string, amount: number) => {
+    const socket = socketRef.current;
+    if (!socket) {
+      return;
+    }
+    void emitAction(socket, { type: 'heal', token_id: tokenId, amount });
+  }, []);
+
   const tokens = joinTokens(displayTokens(board), characters);
 
   // Frame the map to fit once it (and the container) are known.
@@ -311,6 +346,7 @@ export default function MapBoard({
         controllableCharacterId={controllableCharacterId}
         onEndTurn={handleEndTurn}
       />
+      {isHost && <HpControls tokens={tokens} onDamage={handleDamage} onHeal={handleHeal} />}
       {status === 'loaded' && image && (
         <div className="map-board__grid-controls">
           <button

@@ -538,6 +538,40 @@ async def test_handle_action_player_damage_persists_clamped(seeded: SeededBoard)
         assert character.current_hp == 0  # 20 - 1000, clamped
 
 
+async def test_handle_action_host_heal_persists_clamped(seeded: SeededBoard) -> None:
+    """A host healing a token restores HP (clamped at max_hp) and broadcasts."""
+    sio = _fake_sio()
+    _joined(
+        sio,
+        JoinedIdentity(
+            room_id=seeded.room_id,
+            role=ParticipantRole.host,
+            participant_id=uuid.uuid4(),
+            character_id=None,
+        ),
+    )
+    token_id = await _seeded_token_id(seeded)
+    intent = {
+        "version": 1,
+        "payload": {"type": "heal", "token_id": str(token_id), "amount": 100},
+    }
+
+    ack = await handle_action(
+        sio, "sid1", intent, sequencer=RoomSequencer(), session_factory=seeded.factory
+    )
+
+    assert ack["ok"] is True
+    args, kwargs = sio.emit.await_args
+    assert args[0] == "action"
+    assert kwargs == {"room": room_name(str(seeded.room_id))}
+    assert args[1]["payload"] == {"type": "heal", "token_id": str(token_id), "amount": 100}
+
+    async with seeded.factory() as session:
+        character = await session.get(Character, seeded.player_character_id)
+        assert character is not None
+        assert character.current_hp == 24  # 20 + 100, clamped at max_hp (24)
+
+
 async def test_handle_action_player_cannot_move_foreign_token(seeded: SeededBoard) -> None:
     """A player whose character does not own the token is rejected, never broadcast."""
     sio = _fake_sio()

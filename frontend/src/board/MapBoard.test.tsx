@@ -219,4 +219,95 @@ describe('MapBoard', () => {
     // Pointer advanced to Orc.
     expect(screen.getByText('Orc').closest('li')).toHaveAttribute('aria-current', 'true');
   });
+
+  it('updates rendered HP live when a damage action is broadcast', async () => {
+    renderLoadedBoard();
+    await flushHydrate();
+
+    act(() => {
+      socketHarness.options?.onBoardState?.({
+        room_id: 'room-1',
+        tokens: [{ id: 't1', room_id: 'room-1', character_id: 'c1', x: 1, y: 1, size: 1 }],
+        characters: [
+          {
+            id: 'c1',
+            room_id: 'room-1',
+            name: 'Aria',
+            max_hp: 30,
+            current_hp: 20,
+            portrait_url: null,
+            ability_scores: {
+              strength: 10,
+              dexterity: 10,
+              constitution: 10,
+              intelligence: 10,
+              wisdom: 10,
+              charisma: 10,
+            },
+            conditions: [],
+          },
+        ],
+        initiative: { active_index: null, round: 1, entries: [] },
+      });
+    });
+
+    expect(screen.getByText('20/30')).toBeInTheDocument();
+
+    const damage: Action = {
+      version: 1,
+      id: 'act-dmg-1',
+      room_id: 'room-1',
+      actor_participant_id: 'p-1',
+      seq: 2,
+      payload: { type: 'damage', token_id: 't1', amount: 5 },
+    };
+    act(() => {
+      socketHarness.options?.onAction?.(damage);
+    });
+
+    expect(screen.getByText('15/30')).toBeInTheDocument();
+  });
+
+  it('host can apply damage via the HP controls', async () => {
+    const img = { width: 640, height: 480 } as HTMLImageElement;
+    imageState.current = { image: img, status: 'loaded' };
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+    render(<MapBoard roomId="room-1" token="tok-1" isHost />);
+    await flushHydrate();
+
+    act(() => {
+      socketHarness.options?.onBoardState?.({
+        room_id: 'room-1',
+        tokens: [{ id: 't1', room_id: 'room-1', character_id: 'c1', x: 1, y: 1, size: 1 }],
+        characters: [
+          {
+            id: 'c1',
+            room_id: 'room-1',
+            name: 'Aria',
+            max_hp: 30,
+            current_hp: 20,
+            portrait_url: null,
+            ability_scores: {
+              strength: 10,
+              dexterity: 10,
+              constitution: 10,
+              intelligence: 10,
+              wisdom: 10,
+              charisma: 10,
+            },
+            conditions: [],
+          },
+        ],
+        initiative: { active_index: null, round: 1, entries: [] },
+      });
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Damage' }));
+    expect(socketHarness.emitAction).toHaveBeenCalledWith(socketHarness.socket, {
+      type: 'damage',
+      token_id: 't1',
+      amount: 1,
+    });
+  });
 });

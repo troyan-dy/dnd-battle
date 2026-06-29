@@ -27,6 +27,7 @@ from app.schemas.action import (
     ActionIntent,
     DamagePayload,
     EndTurnPayload,
+    HealPayload,
     MarkPayload,
     MovePayload,
 )
@@ -111,6 +112,10 @@ def _damage(token_id: uuid.UUID, amount: int = 3) -> ActionIntent:
     return ActionIntent(payload=DamagePayload(token_id=token_id, amount=amount))
 
 
+def _heal(token_id: uuid.UUID, amount: int = 3) -> ActionIntent:
+    return ActionIntent(payload=HealPayload(token_id=token_id, amount=amount))
+
+
 # --- host permissions -----------------------------------------------------------
 
 
@@ -141,6 +146,19 @@ async def test_host_may_damage_any_token(seeded: Seeded) -> None:
     assert payload.amount == 7
 
 
+async def test_host_may_heal_any_token(seeded: Seeded) -> None:
+    async with seeded.factory() as session:
+        payload = await validate_intent(
+            session,
+            room_id=seeded.room_id,
+            role=ParticipantRole.host,
+            character_id=None,
+            intent=_heal(seeded.token2_id, amount=5),
+        )
+    assert isinstance(payload, HealPayload)
+    assert payload.amount == 5
+
+
 # --- player permissions ---------------------------------------------------------
 
 
@@ -167,6 +185,31 @@ async def test_player_may_damage_own_token(seeded: Seeded) -> None:
             intent=_damage(seeded.token1_id),
         )
     assert isinstance(payload, DamagePayload)
+
+
+async def test_player_may_heal_own_token(seeded: Seeded) -> None:
+    async with seeded.factory() as session:
+        payload = await validate_intent(
+            session,
+            room_id=seeded.room_id,
+            role=ParticipantRole.player,
+            character_id=seeded.p1_character_id,
+            intent=_heal(seeded.token1_id),
+        )
+    assert isinstance(payload, HealPayload)
+
+
+async def test_player_may_not_heal_another_players_token(seeded: Seeded) -> None:
+    async with seeded.factory() as session:
+        with pytest.raises(IntentValidationError) as exc:
+            await validate_intent(
+                session,
+                room_id=seeded.room_id,
+                role=ParticipantRole.player,
+                character_id=seeded.p1_character_id,
+                intent=_heal(seeded.token2_id),
+            )
+    assert "your own token" in exc.value.reason
 
 
 async def test_player_may_not_move_another_players_token(seeded: Seeded) -> None:
