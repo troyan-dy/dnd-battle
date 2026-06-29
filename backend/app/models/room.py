@@ -47,6 +47,13 @@ class Room(Base, TimestampMixin):
     initiative_active_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     initiative_round: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
+    # Durable high-water mark for the per-room broadcast Action ``seq`` (the next
+    # sequence number to issue, zero-based). Persisting it here means the action
+    # sequence survives a server restart: a freshly started process seeds its
+    # in-memory counter from this column instead of colliding from 0, so clients
+    # keep ordering/de-duplicating broadcasts correctly (CLAUDE.md rule 2).
+    last_action_seq: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
     participants: Mapped[list[Participant]] = relationship(
         back_populates="room",
         cascade="all, delete-orphan",

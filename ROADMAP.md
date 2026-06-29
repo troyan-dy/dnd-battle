@@ -64,7 +64,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 
 ## Phase 7 — Permissions, persistence, polish
 - [x] Server-enforced permissions: player acts only on own token; host can do all
-- [ ] Persist room + board snapshots so a session survives a server restart
+- [x] Persist room + board snapshots so a session survives a server restart
 - [ ] Fog of war / hidden tokens controllable by host
 - [ ] Error handling + user-facing messages on desync/disconnect
 - [ ] e2e Playwright: two browser clients, one moves → other sees it

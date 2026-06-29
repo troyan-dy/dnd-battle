@@ -52,6 +52,7 @@ from app.schemas.action import (
 from app.services.actions import (
     IntentValidationError,
     apply_action,
+    reserve_action_seq,
     resolve_attack,
     validate_intent,
 )
@@ -239,9 +240,11 @@ async def handle_action(
         else:
             await apply_action(session, room_id=identity.room_id, payload=payload)
             broadcast_payload = payload
+        # Allocate the broadcast seq and persist the room's high-water mark in the
+        # SAME transaction as the durable effect, so the sequence survives a restart.
+        seq = await reserve_action_seq(session, room_id=identity.room_id, sequencer=sequencer)
         await session.commit()
 
-    seq = sequencer.next_seq(str(identity.room_id))
     action = Action(
         id=uuid.uuid4(),
         room_id=identity.room_id,

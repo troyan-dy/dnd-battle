@@ -753,6 +753,101 @@ async def test_handle_action_seq_is_monotonic_per_room(seeded: SeededBoard) -> N
     assert ack2["seq"] == 1
 
 
+async def test_handle_action_persists_seq_high_water_on_room(seeded: SeededBoard) -> None:
+    """Each broadcast bumps the durable Room.last_action_seq (next seq to issue)."""
+    sio = _fake_sio()
+    _joined(
+        sio,
+        JoinedIdentity(
+            room_id=seeded.room_id,
+            role=ParticipantRole.host,
+            participant_id=uuid.uuid4(),
+            character_id=None,
+        ),
+    )
+    token_id = await _seeded_token_id(seeded)
+    sequencer = RoomSequencer()
+
+    await handle_action(
+        sio,
+        "sid1",
+        _move_intent(token_id, 1, 1),
+        sequencer=sequencer,
+        session_factory=seeded.factory,
+    )
+    await handle_action(
+        sio,
+        "sid1",
+        _move_intent(token_id, 2, 2),
+        sequencer=sequencer,
+        session_factory=seeded.factory,
+    )
+
+    async with seeded.factory() as session:
+        room = await session.get(Room, seeded.room_id)
+        assert room is not None
+        # Two actions issued seq 0 and 1; the next seq to issue is persisted as 2.
+        assert room.last_action_seq == 2
+
+
+async def test_action_seq_survives_server_restart(seeded: SeededBoard) -> None:
+    """A fresh sequencer (a restarted process) resumes seq from the persisted value.
+
+    Proves the action sequence is durable (CLAUDE.md rule 2): the first process issues
+    seq 0 and 1, persisting the high-water on the Room row. A brand-new RoomSequencer
+    with an EMPTY in-memory cache — modelling a server restart — must seed from that
+    durable value and hand out 2 next, never colliding back at 0 (which would break
+    client ordering / de-duplication of broadcasts).
+    """
+    sio = _fake_sio()
+    _joined(
+        sio,
+        JoinedIdentity(
+            room_id=seeded.room_id,
+            role=ParticipantRole.host,
+            participant_id=uuid.uuid4(),
+            character_id=None,
+        ),
+    )
+    token_id = await _seeded_token_id(seeded)
+
+    # First process: two actions through one sequencer.
+    first_process = RoomSequencer()
+    ack0 = await handle_action(
+        sio,
+        "sid1",
+        _move_intent(token_id, 1, 1),
+        sequencer=first_process,
+        session_factory=seeded.factory,
+    )
+    ack1 = await handle_action(
+        sio,
+        "sid1",
+        _move_intent(token_id, 2, 2),
+        sequencer=first_process,
+        session_factory=seeded.factory,
+    )
+    assert ack0["seq"] == 0
+    assert ack1["seq"] == 1
+
+    # Server restarts: a brand-new sequencer with no in-memory state.
+    restarted_process = RoomSequencer()
+    ack2 = await handle_action(
+        sio,
+        "sid1",
+        _move_intent(token_id, 3, 3),
+        sequencer=restarted_process,
+        session_factory=seeded.factory,
+    )
+    # Resumes from the persisted high-water rather than restarting at 0.
+    assert ack2["seq"] == 2
+
+    async with seeded.factory() as session:
+        room = await session.get(Room, seeded.room_id)
+        assert room is not None
+        assert room.last_action_seq == 3
+
+
 async def test_reload_player_link_mid_encounter_restores_state(seeded: SeededBoard) -> None:
     """Reloading a player link mid-encounter resyncs the FULL post-action board.
 
@@ -839,6 +934,22 @@ def test_room_sequencer_is_monotonic_and_per_room() -> None:
     assert sequencer.next_seq("a") == 1
     assert sequencer.next_seq("b") == 0  # independent per room
     assert sequencer.next_seq("a") == 2
+
+
+def test_room_sequencer_seed_recovers_after_restart() -> None:
+    """seed sets a fresh room's counter and never moves it backwards (idempotent)."""
+    sequencer = RoomSequencer()
+    # A freshly started process recovers the durable high-water for a room it has
+    # never seen, then continues from there rather than colliding from 0.
+    sequencer.seed("a", 5)
+    assert sequencer.next_seq("a") == 5
+    assert sequencer.next_seq("a") == 6
+    # Seeding with a stale/lower value is ignored (never rewinds the counter).
+    sequencer.seed("a", 3)
+    assert sequencer.next_seq("a") == 7
+    # Seeding ahead of the in-memory counter advances it.
+    sequencer.seed("a", 20)
+    assert sequencer.next_seq("a") == 20
 
 
 # --- registration + mounting ----------------------------------------------------
