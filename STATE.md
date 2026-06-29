@@ -4,8 +4,8 @@
 > Each agent appends a short entry. Keep it terse. Newest at the top.
 
 ## CURRENT FOCUS
-Phase 0 — Foundation. Lint/format wired for both packages (backend ruff+mypy strict; frontend prettier + existing oxlint) & ticked.
-Next: "CI script that runs lint + tests for both packages" (last Phase 0 task).
+Phase 0 — Foundation COMPLETE. CI workflow wired (`.github/workflows/ci.yml`).
+Next: Phase 1 — "Data model: Room, Participant, InviteLink, Character (SQLAlchemy + Alembic)". NOTE: invite-link security touches auth → requires architect sign-off before implementer proceeds (see CLAUDE.md guardrail).
 
 ## NEEDS HUMAN
 <!-- Agents put blocking questions here and STOP instead of guessing. -->
@@ -13,6 +13,7 @@ Next: "CI script that runs lint + tests for both packages" (last Phase 0 task).
 
 ## LOG
 <!-- Format: [date] [agent] — what changed · what's next -->
+- [2026-06-29] orchestrator — Added `.github/workflows/ci.yml`: two parallel jobs on push(master/main)+PR+manual, with concurrency cancel-in-progress. Backend job (astral-sh/setup-uv@v5 cache, py3.12, `uv sync --frozen`) runs `ruff check`, `ruff format --check`, `mypy`, `pytest -q`. Frontend job (setup-node@v4, node 22, npm cache, `npm ci`) runs oxlint, prettier `format:check`, vitest, build. Verified all 8 commands green locally; `uv sync --frozen` OK (35 pkgs); both lockfiles present; YAML valid (PyYAML `on`→bool quirk is harmless for GH Actions). Phase 0 DONE · next: Phase 1 Room/Participant/InviteLink/Character data model — invite-link security needs ARCHITECT sign-off first.
 - [2026-06-29] orchestrator — Lint/format wired both packages. Backend: added `ruff>=0.8` + `mypy>=1.13` dev deps and `[tool.ruff]` (line-length 100, py312, select E/W/F/I/UP/B/C4/SIM/RUF) + `[tool.mypy]` (strict, files app+tests, relaxed decorators for tests) to pyproject; `uv sync`; ruff autofixed one import-sort in test_health.py → `ruff check`/`ruff format --check` clean, `mypy` strict clean, pytest 2 passed. Frontend: added `prettier@^3` dev dep + `.prettierrc.json` (singleQuote, semi, trailingComma=all, printWidth 100) + `.prettierignore`; `format`/`format:check` scripts; ran `npm run format` → `format:check` clean, oxlint clean, build clean, vitest 1 passed. Decision: kept oxlint (ESLint-family, already wired & green) as the linter instead of adding ESLint to avoid duplicate/conflicting linters; prettier covers formatting. npm install needed public registry (sandbox-gated) · next: CI script (lint+tests both packages).
 - [2026-06-29] implementer — Added root `docker-compose.yml` (postgres:16 default w/ named volume `dnd_pgdata` + pg_isready healthcheck; redis:7 gated behind `profiles: [cache]` w/ healthcheck) and root `.env.example` (POSTGRES_*, asyncpg `DATABASE_URL`, `REDIS_URL`; `.env` already gitignored). No app/DB code touched. Validated YAML structure + env vars via uv python (postgres has no profile so it's default-up; redis profile=[cache]; DATABASE_URL uses postgresql+asyncpg://) → ALL OK. `docker compose config` not runnable in sandbox (approval-gated) so used programmatic schema/env validation instead · next: ruff+mypy / eslint+prettier.
 - [2026-06-29] implementer — Wired Vitest (jsdom + Testing Library + jest-dom); added `src/App.test.tsx` smoke test + `src/setupTests.ts`; `test`/`test:watch` scripts. Test config lives in standalone `vitest.config.ts` (Vitest's nested Vite plugin types clash with project Vite 8/rolldown, so kept out of `tsc -b`). Deps fetched from public npm registry (private artifactory was unreachable). `npm run test` → 1 passed, `npm run build` clean, `npm run lint` clean · next: docker-compose Postgres + `.env.example`.

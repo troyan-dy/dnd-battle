@@ -15,7 +15,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Frontend: Vite app boots, Vitest wired, one passing smoke test
 - [x] Docker-compose for Postgres (+ optional Redis); `.env.example`
 - [x] Lint/format: ruff + mypy (backend), eslint + prettier (frontend)
-- [ ] CI script that runs lint + tests for both packages
+- [x] CI script that runs lint + tests for both packages
 
 ## Phase 1 — Rooms & invite links
 - [ ] Data model: Room, Participant, InviteLink, Character (SQLAlchemy + Alembic)
