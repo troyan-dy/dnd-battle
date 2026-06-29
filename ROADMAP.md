@@ -58,7 +58,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Isolated rules module (pure functions, fully unit-tested)
 - [x] Ability scores, modifiers, proficiency bonus
 - [x] Attack roll vs AC; advantage/disadvantage
-- [ ] Damage rolls + types; basic resistances
+- [x] Damage rolls + types; basic resistances
 - [ ] Conditions (2024 list) with their mechanical effects
 - [ ] Wire rules engine into the attack/damage actions from Phase 5
 
