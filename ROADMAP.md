@@ -18,7 +18,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] CI script that runs lint + tests for both packages
 
 ## Phase 1 — Rooms & invite links
-- [ ] Data model: Room, Participant, InviteLink, Character (SQLAlchemy + Alembic)
+- [x] Data model: Room, Participant, InviteLink, Character (SQLAlchemy + Alembic)
 - [ ] API: create room (host) → returns room id + host link
 - [ ] API: generate per-participant unique invite links bound to a character slot
 - [ ] API: resolve invite link → `{ roomId, participantId, role, characterId }`

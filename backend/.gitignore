@@ -1,0 +1,3 @@
+# Local sqlite databases used for tests / offline schema tooling.
+*.db
+*.db-journal
