@@ -11,7 +11,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 ## Phase 0 — Foundation
 - [x] Scaffold monorepo: `/backend` (FastAPI) and `/frontend` (Vite+React+TS)
 - [x] Backend: uv project, FastAPI app, `/health` endpoint, uvicorn run script
-- [ ] Backend: pytest + pytest-asyncio wired, one passing smoke test
+- [x] Backend: pytest + pytest-asyncio wired, one passing smoke test
 - [ ] Frontend: Vite app boots, Vitest wired, one passing smoke test
 - [ ] Docker-compose for Postgres (+ optional Redis); `.env.example`
 - [ ] Lint/format: ruff + mypy (backend), eslint + prettier (frontend)
