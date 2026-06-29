@@ -55,7 +55,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Shared combat log panel
 
 ## Phase 6 — D&D 2024 rules engine
-- [ ] Isolated rules module (pure functions, fully unit-tested)
+- [x] Isolated rules module (pure functions, fully unit-tested)
 - [ ] Ability scores, modifiers, proficiency bonus
 - [ ] Attack roll vs AC; advantage/disadvantage
 - [ ] Damage rolls + types; basic resistances
