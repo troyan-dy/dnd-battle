@@ -9,7 +9,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 ---
 
 ## Phase 0 — Foundation
-- [ ] Scaffold monorepo: `/backend` (FastAPI) and `/frontend` (Vite+React+TS)
+- [x] Scaffold monorepo: `/backend` (FastAPI) and `/frontend` (Vite+React+TS)
 - [ ] Backend: uv project, FastAPI app, `/health` endpoint, uvicorn run script
 - [ ] Backend: pytest + pytest-asyncio wired, one passing smoke test
 - [ ] Frontend: Vite app boots, Vitest wired, one passing smoke test
