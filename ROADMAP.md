@@ -57,7 +57,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 ## Phase 6 — D&D 2024 rules engine
 - [x] Isolated rules module (pure functions, fully unit-tested)
 - [x] Ability scores, modifiers, proficiency bonus
-- [ ] Attack roll vs AC; advantage/disadvantage
+- [x] Attack roll vs AC; advantage/disadvantage
 - [ ] Damage rolls + types; basic resistances
 - [ ] Conditions (2024 list) with their mechanical effects
 - [ ] Wire rules engine into the attack/damage actions from Phase 5
