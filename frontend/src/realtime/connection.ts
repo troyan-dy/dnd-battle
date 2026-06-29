@@ -10,7 +10,12 @@
 
 import { io, type Socket } from 'socket.io-client';
 
-import type { BoardState } from '../api/types';
+import {
+  ACTION_PROTOCOL_VERSION,
+  type Action,
+  type ActionIntent,
+  type BoardState,
+} from '../api/types';
 
 // The realtime server is mounted on the same origin/port as the REST API, so the
 // connection URL mirrors the API base. The Socket.IO handshake path is the
@@ -44,12 +49,45 @@ export function joinRoom(socket: Socket, token: string): Promise<JoinAck> {
   });
 }
 
+/** Server acknowledgement to an "action" intent (mirrors the backend action ack). */
+export interface ActionAck {
+  ok: boolean;
+  /** Server-generated id of the broadcast Action (present on success). */
+  actionId?: string;
+  /** Per-room monotonic sequence number assigned to the Action (on success). */
+  seq?: number;
+  /** Human-readable reason the intent was rejected (present on failure). */
+  error?: string;
+}
+
+/** Payload of an {@link ActionIntent} without the protocol version. */
+type IntentPayload = ActionIntent['payload'];
+
+/**
+ * Send a board action intent and resolve with the server ack.
+ *
+ * The client sends ONLY the versioned intent; the server is authoritative
+ * (CLAUDE.md rule 1) — it validates, applies and broadcasts the resulting
+ * {@link Action} to everyone in the room. A rejected intent resolves with
+ * `{ ok: false, error }` and is never broadcast.
+ */
+export function emitAction(socket: Socket, payload: IntentPayload): Promise<ActionAck> {
+  const intent: ActionIntent = { version: ACTION_PROTOCOL_VERSION, payload };
+  return new Promise<ActionAck>((resolve) => {
+    socket.emit('action', intent, (ack: ActionAck) => {
+      resolve(ack);
+    });
+  });
+}
+
 /** Options for {@link createBoardSocket}. */
 export interface BoardSocketOptions {
   /** Base URL of the realtime server (defaults to {@link SOCKET_BASE_URL}). */
   url?: string;
   /** Called with the full snapshot every time the server pushes `boardState`. */
   onBoardState?: (state: BoardState) => void;
+  /** Called with each authoritative `action` the server broadcasts to the room. */
+  onAction?: (action: Action) => void;
 }
 
 /**
@@ -61,7 +99,7 @@ export interface BoardSocketOptions {
  * `socket.disconnect()` on teardown.
  */
 export function createBoardSocket(token: string, options: BoardSocketOptions = {}): Socket {
-  const { url = SOCKET_BASE_URL, onBoardState } = options;
+  const { url = SOCKET_BASE_URL, onBoardState, onAction } = options;
 
   const socket = io(url, {
     path: SOCKETIO_PATH,
@@ -76,6 +114,12 @@ export function createBoardSocket(token: string, options: BoardSocketOptions = {
   if (onBoardState) {
     socket.on('boardState', (state: BoardState) => {
       onBoardState(state);
+    });
+  }
+
+  if (onAction) {
+    socket.on('action', (action: Action) => {
+      onAction(action);
     });
   }
 

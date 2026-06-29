@@ -42,7 +42,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Join room → server sends FULL current BoardState (reconnect-safe)
 - [x] Action protocol (Pydantic): move, mark, damage, endTurn… defined + versioned
 - [x] Server validates intents (permissions + bounds) before broadcasting
-- [ ] Broadcast resulting Action to all participants in the room
+- [x] Broadcast resulting Action to all participants in the room
 - [ ] Optimistic move on client + reconcile to server broadcast
 - [ ] Reconnect test: reload a player link mid-encounter, state restores
 

@@ -34,12 +34,15 @@ from app.models import (
 from app.realtime import create_asgi_app, create_sio_server
 from app.realtime.events import (
     ROOM_PREFIX,
+    JoinedIdentity,
+    handle_action,
     handle_connect,
     handle_disconnect,
     handle_join,
     register_handlers,
     room_name,
 )
+from app.realtime.sequence import RoomSequencer
 from app.security.tokens import generate_token, hash_token
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -47,10 +50,13 @@ from sqlalchemy.pool import StaticPool
 
 
 def _fake_sio() -> MagicMock:
-    """A stand-in Socket.IO server with awaitable enter_room/emit spies."""
+    """A stand-in Socket.IO server with awaitable enter_room/emit/session spies."""
     sio = MagicMock()
     sio.enter_room = AsyncMock()
     sio.emit = AsyncMock()
+    sio.save_session = AsyncMock()
+    # Default: no identity bound (overridden per-test for joined connections).
+    sio.get_session = AsyncMock(return_value={})
     return sio
 
 
@@ -267,13 +273,242 @@ async def test_handle_join_revoked_token_is_rejected(seeded: SeededBoard) -> Non
     sio.enter_room.assert_not_awaited()
 
 
+async def test_handle_join_stashes_identity_in_session(seeded: SeededBoard) -> None:
+    """A successful join saves the resolved identity for later action attribution."""
+    sio = _fake_sio()
+
+    await handle_join(sio, "sid1", {"token": seeded.player_token}, session_factory=seeded.factory)
+
+    sio.save_session.assert_awaited_once()
+    args, _ = sio.save_session.await_args
+    assert args[0] == "sid1"
+    identity = args[1]
+    assert isinstance(identity, JoinedIdentity)
+    assert identity.room_id == seeded.room_id
+    assert identity.role == ParticipantRole.player
+    assert identity.participant_id == seeded.player_participant_id
+    assert identity.character_id == seeded.player_character_id
+
+
+# --- action broadcast -----------------------------------------------------------
+
+
+def _joined(sio: MagicMock, identity: JoinedIdentity) -> None:
+    """Bind an authenticated identity to the fake connection (as join would)."""
+    sio.get_session = AsyncMock(return_value=identity)
+
+
+async def _seeded_token_id(seeded: SeededBoard) -> uuid.UUID:
+    async with seeded.factory() as session:
+        token = (await session.execute(select(Token))).scalar_one()
+        return token.id
+
+
+def _move_intent(token_id: uuid.UUID, x: int, y: int) -> dict[str, object]:
+    return {"version": 1, "payload": {"type": "move", "token_id": str(token_id), "x": x, "y": y}}
+
+
+async def test_handle_action_rejects_when_not_joined() -> None:
+    """An action on a connection that never joined is acked-error and not broadcast."""
+    sio = _fake_sio()  # default get_session -> {} (no identity)
+
+    ack = await handle_action(
+        sio, "sid1", _move_intent(uuid.uuid4(), 1, 1), sequencer=RoomSequencer()
+    )
+
+    assert ack["ok"] is False
+    assert "error" in ack
+    # The only emit is the error to the caller; nothing broadcast to a room.
+    sio.emit.assert_awaited_once()
+    args, kwargs = sio.emit.await_args
+    assert args[0] == "error"
+    assert kwargs == {"to": "sid1"}
+
+
+async def test_handle_action_rejects_malformed_intent(seeded: SeededBoard) -> None:
+    """A bad protocol version fails to parse -> error ack, no broadcast, no mutation."""
+    sio = _fake_sio()
+    _joined(
+        sio,
+        JoinedIdentity(
+            room_id=seeded.room_id,
+            role=ParticipantRole.host,
+            participant_id=uuid.uuid4(),
+            character_id=None,
+        ),
+    )
+    token_id = await _seeded_token_id(seeded)
+    bad = {"version": 999, "payload": {"type": "move", "token_id": str(token_id), "x": 1, "y": 1}}
+
+    ack = await handle_action(
+        sio, "sid1", bad, sequencer=RoomSequencer(), session_factory=seeded.factory
+    )
+
+    assert ack["ok"] is False
+    args, kwargs = sio.emit.await_args
+    assert args[0] == "error"
+    assert kwargs == {"to": "sid1"}
+
+
+async def test_handle_action_host_move_broadcasts_and_persists(seeded: SeededBoard) -> None:
+    """A host move broadcasts the stamped Action to the room AND moves the token row."""
+    sio = _fake_sio()
+    actor = uuid.uuid4()
+    _joined(
+        sio,
+        JoinedIdentity(
+            room_id=seeded.room_id,
+            role=ParticipantRole.host,
+            participant_id=actor,
+            character_id=None,
+        ),
+    )
+    token_id = await _seeded_token_id(seeded)
+
+    ack = await handle_action(
+        sio,
+        "sid1",
+        _move_intent(token_id, 7, 8),
+        sequencer=RoomSequencer(),
+        session_factory=seeded.factory,
+    )
+
+    assert ack["ok"] is True
+    assert ack["seq"] == 0
+
+    # Broadcast to the whole room (not `to=` a single sid).
+    sio.emit.assert_awaited_once()
+    args, kwargs = sio.emit.await_args
+    assert args[0] == "action"
+    assert kwargs == {"room": room_name(str(seeded.room_id))}
+    action = args[1]
+    assert action["room_id"] == str(seeded.room_id)
+    assert action["actor_participant_id"] == str(actor)
+    assert action["seq"] == 0
+    assert action["payload"] == {"type": "move", "token_id": str(token_id), "x": 7, "y": 8}
+
+    # Durable row reflects the move (reconnect-safe).
+    async with seeded.factory() as session:
+        token = await session.get(Token, token_id)
+        assert token is not None
+        assert (token.x, token.y) == (7, 8)
+
+
+async def test_handle_action_player_damage_persists_clamped(seeded: SeededBoard) -> None:
+    """A player damaging their own token reduces HP (clamped at 0) and broadcasts."""
+    sio = _fake_sio()
+    _joined(
+        sio,
+        JoinedIdentity(
+            room_id=seeded.room_id,
+            role=ParticipantRole.player,
+            participant_id=seeded.player_participant_id,
+            character_id=seeded.player_character_id,
+        ),
+    )
+    token_id = await _seeded_token_id(seeded)
+    intent = {
+        "version": 1,
+        "payload": {"type": "damage", "token_id": str(token_id), "amount": 1000},
+    }
+
+    ack = await handle_action(
+        sio, "sid1", intent, sequencer=RoomSequencer(), session_factory=seeded.factory
+    )
+
+    assert ack["ok"] is True
+    args, _ = sio.emit.await_args
+    assert args[0] == "action"
+
+    async with seeded.factory() as session:
+        character = await session.get(Character, seeded.player_character_id)
+        assert character is not None
+        assert character.current_hp == 0  # 20 - 1000, clamped
+
+
+async def test_handle_action_player_cannot_move_foreign_token(seeded: SeededBoard) -> None:
+    """A player whose character does not own the token is rejected, never broadcast."""
+    sio = _fake_sio()
+    _joined(
+        sio,
+        JoinedIdentity(
+            room_id=seeded.room_id,
+            role=ParticipantRole.player,
+            participant_id=seeded.player_participant_id,
+            character_id=uuid.uuid4(),  # not the token's character
+        ),
+    )
+    token_id = await _seeded_token_id(seeded)
+
+    ack = await handle_action(
+        sio,
+        "sid1",
+        _move_intent(token_id, 1, 1),
+        sequencer=RoomSequencer(),
+        session_factory=seeded.factory,
+    )
+
+    assert ack["ok"] is False
+    args, kwargs = sio.emit.await_args
+    assert args[0] == "error"
+    assert kwargs == {"to": "sid1"}
+
+    # Token unchanged (no durable mutation on a rejected action).
+    async with seeded.factory() as session:
+        token = await session.get(Token, token_id)
+        assert token is not None
+        assert (token.x, token.y) == (3, 4)
+
+
+async def test_handle_action_seq_is_monotonic_per_room(seeded: SeededBoard) -> None:
+    """A shared sequencer hands out increasing seq across actions in the same room."""
+    sio = _fake_sio()
+    _joined(
+        sio,
+        JoinedIdentity(
+            room_id=seeded.room_id,
+            role=ParticipantRole.host,
+            participant_id=uuid.uuid4(),
+            character_id=None,
+        ),
+    )
+    token_id = await _seeded_token_id(seeded)
+    sequencer = RoomSequencer()
+
+    ack1 = await handle_action(
+        sio,
+        "sid1",
+        _move_intent(token_id, 1, 1),
+        sequencer=sequencer,
+        session_factory=seeded.factory,
+    )
+    ack2 = await handle_action(
+        sio,
+        "sid1",
+        _move_intent(token_id, 2, 2),
+        sequencer=sequencer,
+        session_factory=seeded.factory,
+    )
+
+    assert ack1["seq"] == 0
+    assert ack2["seq"] == 1
+
+
+def test_room_sequencer_is_monotonic_and_per_room() -> None:
+    sequencer = RoomSequencer()
+    assert sequencer.next_seq("a") == 0
+    assert sequencer.next_seq("a") == 1
+    assert sequencer.next_seq("b") == 0  # independent per room
+    assert sequencer.next_seq("a") == 2
+
+
 # --- registration + mounting ----------------------------------------------------
 
 
 def test_register_handlers_binds_events() -> None:
     sio = create_sio_server()
     handlers = sio.handlers["/"]
-    assert {"connect", "disconnect", "join"} <= set(handlers)
+    assert {"connect", "disconnect", "join", "action"} <= set(handlers)
 
 
 def test_create_sio_server_returns_async_server() -> None:
@@ -285,7 +520,7 @@ def test_register_handlers_is_callable_on_plain_mock() -> None:
     sio = MagicMock()
     register_handlers(sio)
     registered = {call.args[0] for call in sio.on.call_args_list}
-    assert {"connect", "disconnect", "join"} == registered
+    assert {"connect", "disconnect", "join", "action"} == registered
 
 
 async def test_combined_asgi_app_serves_fastapi_health() -> None:

@@ -38,6 +38,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.character import Character
 from app.models.enums import ParticipantRole
 from app.models.token import Token
 from app.schemas.action import (
@@ -116,3 +117,38 @@ async def _authorize_token_target(
     # Player: the token must be bound to this participant's own character.
     if character_id is None or token.character_id != character_id:
         raise IntentValidationError(_TOKEN_NOT_OWNED)
+
+
+async def apply_action(
+    session: AsyncSession,
+    *,
+    room_id: uuid.UUID,
+    payload: ActionPayload,
+) -> None:
+    """Apply a VALIDATED action's durable effect to the source-of-truth rows.
+
+    Called only after :func:`validate_intent` has authorised ``payload``, and
+    BEFORE the action is broadcast, so the durable :class:`Token` / :class:`Character`
+    rows reflect the change. This keeps :func:`app.services.board.build_board_state`
+    authoritative: a client that reloads its link mid-encounter rebuilds the
+    post-action board (reconnect-safe, CLAUDE.md rule 2). The caller commits.
+
+    * ``move``   -> update the token's grid coordinates.
+    * ``damage`` -> reduce the bound character's current HP, clamped at 0.
+    * ``mark`` / ``endTurn`` carry no durable board state (a mark is transient;
+      turn order arrives with the Phase 5 initiative tracker) -> no row change.
+
+    The ``None`` guards are defensive: validation already proved the token (and
+    thus its character) exists in ``room_id``.
+    """
+    if isinstance(payload, MovePayload):
+        token = await session.get(Token, payload.token_id)
+        if token is not None and token.room_id == room_id:
+            token.x = payload.x
+            token.y = payload.y
+    elif isinstance(payload, DamagePayload):
+        token = await session.get(Token, payload.token_id)
+        if token is not None and token.room_id == room_id:
+            character = await session.get(Character, token.character_id)
+            if character is not None:
+                character.current_hp = max(0, character.current_hp - payload.amount)

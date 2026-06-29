@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { BoardState } from '../api/types';
+import { ACTION_PROTOCOL_VERSION, type Action, type BoardState } from '../api/types';
 
 // A controllable fake Socket: records handlers and emits, lets tests trigger
 // lifecycle events and ack callbacks deterministically (no real network).
@@ -92,6 +92,51 @@ describe('createBoardSocket', () => {
     fake.fire('boardState', snapshot);
 
     expect(received).toEqual([snapshot]);
+  });
+
+  it('surfaces each broadcast Action from the server', async () => {
+    const fake = makeFakeSocket();
+    ioMock.mockReturnValue(fake);
+    const { createBoardSocket } = await import('./connection');
+
+    const received: Action[] = [];
+    createBoardSocket('secret-token', {
+      url: 'http://api.test',
+      onAction: (action) => received.push(action),
+    });
+
+    const action: Action = {
+      version: ACTION_PROTOCOL_VERSION,
+      id: 'a1',
+      room_id: 'room-1',
+      actor_participant_id: 'p1',
+      seq: 0,
+      payload: { type: 'move', token_id: 't1', x: 7, y: 8 },
+    };
+    fake.fire('action', action);
+
+    expect(received).toEqual([action]);
+  });
+});
+
+describe('emitAction', () => {
+  it('emits a versioned intent and resolves with the server ack', async () => {
+    const fake = makeFakeSocket();
+    fake.emit.mockImplementation((_event: string, _intent: unknown, ack: (a: unknown) => void) => {
+      ack({ ok: true, actionId: 'a1', seq: 0 });
+    });
+    const { emitAction } = await import('./connection');
+
+    const ack = await emitAction(fake as never, { type: 'move', token_id: 't1', x: 7, y: 8 });
+
+    expect(ack).toEqual({ ok: true, actionId: 'a1', seq: 0 });
+    const [event, intent] = fake.emit.mock.calls[0] as [
+      string,
+      { version: number; payload: unknown },
+    ];
+    expect(event).toBe('action');
+    expect(intent.version).toBe(ACTION_PROTOCOL_VERSION);
+    expect(intent.payload).toEqual({ type: 'move', token_id: 't1', x: 7, y: 8 });
   });
 });
 
