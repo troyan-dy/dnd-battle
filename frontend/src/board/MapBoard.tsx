@@ -26,6 +26,13 @@ import type { Socket } from 'socket.io-client';
 import { listCharacters, listTokens, mapImageUrl } from '../api/client';
 import type { CharacterResponse, InitiativeState, TokenResponse } from '../api/types';
 import { createBoardSocket, emitAction } from '../realtime/connection';
+import {
+  appendNotice,
+  connectionBanner,
+  dismissNotice,
+  type ConnectionStatus,
+  type Notice,
+} from '../realtime/status';
 import GridLayer from './GridLayer';
 import { DEFAULT_GRID, MIN_CELL_SIZE, type GridConfig } from './grid';
 import TokenLayer from './TokenLayer';
@@ -114,7 +121,35 @@ export default function MapBoard({
   const [log, setLog] = useState<CombatLogEntry[]>([]);
   const [initiative, setInitiative] = useState<InitiativeState>(EMPTY_INITIATIVE);
   const [pingMode, setPingMode] = useState(false);
+  const [connection, setConnection] = useState<ConnectionStatus>('connecting');
+  const [notices, setNotices] = useState<Notice[]>([]);
   const socketRef = useRef<Socket | null>(null);
+  // Monotonic source of notice ids (ref so it survives re-renders without state).
+  const noticeIdRef = useRef(0);
+
+  // Surface a server-rejected intent (or any user-facing error) as a dismissible
+  // notice. Memoised so it is stable across renders and safe in effect deps.
+  const pushNotice = useCallback((message: string) => {
+    noticeIdRef.current += 1;
+    const notice: Notice = { id: noticeIdRef.current, message };
+    setNotices((current) => appendNotice(current, notice));
+  }, []);
+
+  const dismiss = useCallback((id: number) => {
+    setNotices((current) => dismissNotice(current, id));
+  }, []);
+
+  // Reconcile an action ack: a rejection becomes a user-facing notice. Returns
+  // whether the intent succeeded so callers can also roll back optimistic state.
+  const reportAck = useCallback(
+    (ack: { ok: boolean; error?: string }): boolean => {
+      if (!ack.ok) {
+        pushNotice(ack.error ?? 'That action was rejected by the server.');
+      }
+      return ack.ok;
+    },
+    [pushNotice],
+  );
   // Always-fresh board ref so the once-registered onAction handler can resolve a
   // damaged/healed token's character without capturing a stale `board` closure.
   const boardRef = useRef(board);
@@ -150,6 +185,8 @@ export default function MapBoard({
   // BoardState (reconnect-safe); each broadcast Action is applied authoritatively.
   useEffect(() => {
     const socket = createBoardSocket(token, {
+      onStatusChange: setConnection,
+      onError: pushNotice,
       onBoardState: (state) => {
         setCharacters(state.characters);
         setBoard(fromBoardState(state));
@@ -207,7 +244,7 @@ export default function MapBoard({
       socketRef.current = null;
       socket.disconnect();
     };
-  }, [token]);
+  }, [token, pushNotice]);
 
   // Periodically drop expired marks so pings fade on their own. pruneExpired
   // returns the same array when nothing changed, so this re-renders only when a
@@ -230,20 +267,23 @@ export default function MapBoard({
   // A token was dropped on a new cell: apply optimistically, emit the intent, and
   // reconcile — roll back if the server rejects it; a successful broadcast arrives
   // via onAction and replaces the optimistic position (CLAUDE.md rule 5).
-  const handleTokenMove = useCallback((tokenId: string, cell: { x: number; y: number }) => {
-    setBoard((b) => beginOptimisticMove(b, tokenId, cell.x, cell.y));
-    const socket = socketRef.current;
-    if (!socket) {
-      return;
-    }
-    void emitAction(socket, { type: 'move', token_id: tokenId, x: cell.x, y: cell.y }).then(
-      (ack) => {
-        if (!ack.ok) {
-          setBoard((b) => rollbackMove(b, tokenId));
-        }
-      },
-    );
-  }, []);
+  const handleTokenMove = useCallback(
+    (tokenId: string, cell: { x: number; y: number }) => {
+      setBoard((b) => beginOptimisticMove(b, tokenId, cell.x, cell.y));
+      const socket = socketRef.current;
+      if (!socket) {
+        return;
+      }
+      void emitAction(socket, { type: 'move', token_id: tokenId, x: cell.x, y: cell.y }).then(
+        (ack) => {
+          if (!reportAck(ack)) {
+            setBoard((b) => rollbackMove(b, tokenId));
+          }
+        },
+      );
+    },
+    [reportAck],
+  );
 
   // In ping mode, a click anywhere on the board drops a temporary mark at the
   // clicked cell. We only emit the intent; the server broadcasts the resulting
@@ -261,9 +301,9 @@ export default function MapBoard({
       }
       const world = screenToWorld(viewport, pointer);
       const cell = worldToCell(world.x, world.y, grid);
-      void emitAction(socket, { type: 'mark', x: cell.x, y: cell.y });
+      void emitAction(socket, { type: 'mark', x: cell.x, y: cell.y }).then(reportAck);
     },
-    [pingMode, viewport, grid],
+    [pingMode, viewport, grid, reportAck],
   );
 
   // End the current turn: emit the intent and let the server's broadcast advance
@@ -274,38 +314,47 @@ export default function MapBoard({
     if (!socket) {
       return;
     }
-    void emitAction(socket, { type: 'endTurn' });
-  }, []);
+    void emitAction(socket, { type: 'endTurn' }).then(reportAck);
+  }, [reportAck]);
 
   // Host applies damage / healing to a token. We only emit the intent; the
   // server validates + applies the durable HP change and broadcasts it back,
   // which updates the rendered HP for everyone (including us) via onAction.
-  const handleDamage = useCallback((tokenId: string, amount: number) => {
-    const socket = socketRef.current;
-    if (!socket) {
-      return;
-    }
-    void emitAction(socket, { type: 'damage', token_id: tokenId, amount });
-  }, []);
+  const handleDamage = useCallback(
+    (tokenId: string, amount: number) => {
+      const socket = socketRef.current;
+      if (!socket) {
+        return;
+      }
+      void emitAction(socket, { type: 'damage', token_id: tokenId, amount }).then(reportAck);
+    },
+    [reportAck],
+  );
 
-  const handleHeal = useCallback((tokenId: string, amount: number) => {
-    const socket = socketRef.current;
-    if (!socket) {
-      return;
-    }
-    void emitAction(socket, { type: 'heal', token_id: tokenId, amount });
-  }, []);
+  const handleHeal = useCallback(
+    (tokenId: string, amount: number) => {
+      const socket = socketRef.current;
+      if (!socket) {
+        return;
+      }
+      void emitAction(socket, { type: 'heal', token_id: tokenId, amount }).then(reportAck);
+    },
+    [reportAck],
+  );
 
   // Host hides / reveals a token (fog of war). We only emit the intent; the server
   // (HOST-ONLY, CLAUDE.md rule 3) flips the durable flag and pushes a fresh,
   // role-filtered BoardState to each side, which updates our view via onBoardState.
-  const handleSetVisibility = useCallback((tokenId: string, hidden: boolean) => {
-    const socket = socketRef.current;
-    if (!socket) {
-      return;
-    }
-    void emitAction(socket, { type: 'setVisibility', token_id: tokenId, hidden });
-  }, []);
+  const handleSetVisibility = useCallback(
+    (tokenId: string, hidden: boolean) => {
+      const socket = socketRef.current;
+      if (!socket) {
+        return;
+      }
+      void emitAction(socket, { type: 'setVisibility', token_id: tokenId, hidden }).then(reportAck);
+    },
+    [reportAck],
+  );
 
   // Make an attack: emit the intent and let the server roll + apply + broadcast.
   // The resulting `attack` Action (handled in onAction) updates HP and the log.
@@ -321,11 +370,12 @@ export default function MapBoard({
         target_token_id: targetId,
         attack_bonus: bonus,
         damage,
-      });
+      }).then(reportAck);
     },
-    [],
+    [reportAck],
   );
 
+  const banner = connectionBanner(connection);
   const tokens = joinTokens(displayTokens(board), characters);
   // Token ids this client may attack WITH (host: all; player: its own token).
   const controllableTokenIds = tokens.filter((t) => canDrag(t.token)).map((t) => t.token.id);
@@ -357,6 +407,28 @@ export default function MapBoard({
 
   return (
     <div ref={containerRef} className="map-board" data-status={status}>
+      {connection === 'reconnecting' && banner && (
+        <p className="map-board__connection-banner" data-tone={banner.tone} aria-live="assertive">
+          {banner.message}
+        </p>
+      )}
+      {notices.length > 0 && (
+        <ul className="map-board__notices" role="alert" aria-live="assertive">
+          {notices.map((notice) => (
+            <li key={notice.id} className="map-board__notice">
+              <span>{notice.message}</span>
+              <button
+                type="button"
+                className="map-board__notice-dismiss"
+                aria-label="Dismiss message"
+                onClick={() => dismiss(notice.id)}
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {status === 'loading' && (
         <p className="map-board__overlay" role="status">
           Loading map…

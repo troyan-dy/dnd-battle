@@ -16,6 +16,7 @@ import {
   type ActionIntent,
   type BoardState,
 } from '../api/types';
+import type { ConnectionStatus } from './status';
 
 // The realtime server is mounted on the same origin/port as the REST API, so the
 // connection URL mirrors the API base. The Socket.IO handshake path is the
@@ -88,6 +89,19 @@ export interface BoardSocketOptions {
   onBoardState?: (state: BoardState) => void;
   /** Called with each authoritative `action` the server broadcasts to the room. */
   onAction?: (action: Action) => void;
+  /**
+   * Called whenever the perceived connection health changes — `connecting`
+   * initially, `connected` once the (re)join is acknowledged, `reconnecting`
+   * when the socket drops or fails to connect. Lets the UI surface desync /
+   * disconnect to the user (CLAUDE.md rule 2 — reconnect-safe).
+   */
+  onStatusChange?: (status: ConnectionStatus) => void;
+  /**
+   * Called with a human-readable message when the server rejects the join
+   * (e.g. an invalid or expired invite link). Action-level rejections are
+   * surfaced via each {@link emitAction} ack instead.
+   */
+  onError?: (message: string) => void;
 }
 
 /**
@@ -99,7 +113,7 @@ export interface BoardSocketOptions {
  * `socket.disconnect()` on teardown.
  */
 export function createBoardSocket(token: string, options: BoardSocketOptions = {}): Socket {
-  const { url = SOCKET_BASE_URL, onBoardState, onAction } = options;
+  const { url = SOCKET_BASE_URL, onBoardState, onAction, onStatusChange, onError } = options;
 
   const socket = io(url, {
     path: SOCKETIO_PATH,
@@ -107,8 +121,26 @@ export function createBoardSocket(token: string, options: BoardSocketOptions = {
     autoConnect: true,
   });
 
+  // Start out optimistically "connecting" until the first join is acknowledged.
+  onStatusChange?.('connecting');
+
   socket.on('connect', () => {
-    void joinRoom(socket, token);
+    void joinRoom(socket, token).then((ack) => {
+      if (ack.ok) {
+        onStatusChange?.('connected');
+      } else if (ack.error) {
+        onError?.(ack.error);
+      }
+    });
+  });
+
+  // A drop or a failed (re)connect attempt: Socket.IO keeps retrying in the
+  // background, so present this as "reconnecting" rather than a hard failure.
+  socket.on('disconnect', () => {
+    onStatusChange?.('reconnecting');
+  });
+  socket.on('connect_error', () => {
+    onStatusChange?.('reconnecting');
   });
 
   if (onBoardState) {

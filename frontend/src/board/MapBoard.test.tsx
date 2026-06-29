@@ -36,8 +36,16 @@ vi.mock('../api/client', () => ({
 const socketHarness = vi.hoisted(() => ({
   socket: { disconnect: vi.fn() },
   options: undefined as
-    undefined | { onAction?: (a: Action) => void; onBoardState?: (s: unknown) => void },
-  emitAction: vi.fn(() => Promise.resolve({ ok: true })),
+    | undefined
+    | {
+        onAction?: (a: Action) => void;
+        onBoardState?: (s: unknown) => void;
+        onStatusChange?: (status: 'connecting' | 'connected' | 'reconnecting') => void;
+        onError?: (message: string) => void;
+      },
+  emitAction: vi.fn(
+    () => Promise.resolve({ ok: true }) as Promise<{ ok: boolean; error?: string }>,
+  ),
 }));
 vi.mock('../realtime/connection', () => ({
   createBoardSocket: vi.fn((_token: string, options: unknown) => {
@@ -60,7 +68,10 @@ import MapBoard from './MapBoard';
 afterEach(() => {
   imageState.current = { image: null, status: 'loading' };
   socketHarness.options = undefined;
-  socketHarness.emitAction.mockClear();
+  // Reset to the default "accepted" ack so a per-test mockResolvedValueOnce never
+  // leaks into the next test.
+  socketHarness.emitAction.mockReset();
+  socketHarness.emitAction.mockResolvedValue({ ok: true });
 });
 
 /** Render a fully loaded board (image + measured container) for interaction tests. */
@@ -475,5 +486,84 @@ describe('MapBoard', () => {
       attack_bonus: 0,
       damage: '1d6',
     });
+  });
+
+  it('shows a reconnecting banner when the connection drops and clears it on reconnect', async () => {
+    renderLoadedBoard();
+    await flushHydrate();
+
+    // Healthy on first render: no banner.
+    expect(screen.queryByText(/trying to reconnect/i)).toBeNull();
+
+    act(() => {
+      socketHarness.options?.onStatusChange?.('reconnecting');
+    });
+    expect(screen.getByText(/trying to reconnect/i)).toBeInTheDocument();
+
+    act(() => {
+      socketHarness.options?.onStatusChange?.('connected');
+    });
+    expect(screen.queryByText(/trying to reconnect/i)).toBeNull();
+  });
+
+  it('surfaces a rejected action as a dismissible notice', async () => {
+    socketHarness.emitAction.mockResolvedValueOnce({ ok: false, error: 'It is not your turn.' });
+
+    const img = { width: 640, height: 480 } as HTMLImageElement;
+    imageState.current = { image: img, status: 'loaded' };
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+    render(<MapBoard roomId="room-1" token="tok-1" isHost />);
+    await flushHydrate();
+
+    act(() => {
+      socketHarness.options?.onBoardState?.({
+        room_id: 'room-1',
+        tokens: [{ id: 't1', room_id: 'room-1', character_id: 'c1', x: 1, y: 1, size: 1 }],
+        characters: [
+          {
+            id: 'c1',
+            room_id: 'room-1',
+            name: 'Aria',
+            max_hp: 30,
+            current_hp: 20,
+            portrait_url: null,
+            ability_scores: {
+              strength: 10,
+              dexterity: 10,
+              constitution: 10,
+              intelligence: 10,
+              wisdom: 10,
+              charisma: 10,
+            },
+            armor_class: 10,
+            resistances: {},
+            conditions: [],
+          },
+        ],
+        initiative: { active_index: null, round: 1, entries: [] },
+      });
+    });
+
+    // Apply damage; the server rejects it, so the human-readable reason appears.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Damage' }));
+    });
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('It is not your turn.');
+
+    // The notice is dismissible.
+    fireEvent.click(screen.getByRole('button', { name: /dismiss message/i }));
+    expect(screen.queryByText('It is not your turn.')).toBeNull();
+  });
+
+  it('surfaces a join rejection error from the transport', async () => {
+    renderLoadedBoard();
+    await flushHydrate();
+
+    act(() => {
+      socketHarness.options?.onError?.('Invalid or expired invite link.');
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('Invalid or expired invite link.');
   });
 });

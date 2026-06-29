@@ -73,6 +73,57 @@ describe('createBoardSocket', () => {
     expect(fake.emit).toHaveBeenCalledTimes(2);
   });
 
+  it('reports connection status across the lifecycle', async () => {
+    const fake = makeFakeSocket();
+    fake.emit.mockImplementation((_event: string, _payload: unknown, ack: (a: unknown) => void) => {
+      ack({ ok: true, roomId: 'room-1', role: 'player' });
+    });
+    ioMock.mockReturnValue(fake);
+    const { createBoardSocket } = await import('./connection');
+
+    const statuses: string[] = [];
+    createBoardSocket('secret-token', {
+      url: 'http://api.test',
+      onStatusChange: (status) => statuses.push(status),
+    });
+
+    // Reported "connecting" synchronously on creation.
+    expect(statuses).toEqual(['connecting']);
+
+    // A successful join ack flips to "connected".
+    fake.fire('connect');
+    await Promise.resolve();
+    expect(statuses).toEqual(['connecting', 'connected']);
+
+    // A drop and a failed retry both surface as "reconnecting".
+    fake.fire('disconnect', 'transport close');
+    fake.fire('connect_error', new Error('boom'));
+    expect(statuses).toEqual(['connecting', 'connected', 'reconnecting', 'reconnecting']);
+  });
+
+  it('surfaces a join rejection via onError without flipping to connected', async () => {
+    const fake = makeFakeSocket();
+    fake.emit.mockImplementation((_event: string, _payload: unknown, ack: (a: unknown) => void) => {
+      ack({ ok: false, error: 'Invalid or expired invite link.' });
+    });
+    ioMock.mockReturnValue(fake);
+    const { createBoardSocket } = await import('./connection');
+
+    const statuses: string[] = [];
+    const errors: string[] = [];
+    createBoardSocket('bad-token', {
+      url: 'http://api.test',
+      onStatusChange: (status) => statuses.push(status),
+      onError: (message) => errors.push(message),
+    });
+
+    fake.fire('connect');
+    await Promise.resolve();
+
+    expect(errors).toEqual(['Invalid or expired invite link.']);
+    expect(statuses).toEqual(['connecting']);
+  });
+
   it('surfaces the full BoardState pushed by the server', async () => {
     const fake = makeFakeSocket();
     ioMock.mockReturnValue(fake);

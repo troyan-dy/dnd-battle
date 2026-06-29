@@ -263,6 +263,57 @@
   color: #cfcfd6;
   font-size: 0.95rem;
 }
+.map-board__connection-banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #1e1e24;
+  background: #f0c14b;
+}
+.map-board__connection-banner[data-tone='info'] {
+  background: #8ab4f8;
+}
+.map-board__notices {
+  position: absolute;
+  top: 36px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  width: min(90%, 28rem);
+}
+.map-board__notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  background: rgba(176, 42, 55, 0.95);
+  color: #fff;
+  font-size: 0.85rem;
+}
+.map-board__notice-dismiss {
+  flex: none;
+  padding: 0 0.4rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
 .map-board__grid-controls {
   position: absolute;
   top: 8px;

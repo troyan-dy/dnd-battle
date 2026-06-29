@@ -66,7 +66,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Server-enforced permissions: player acts only on own token; host can do all
 - [x] Persist room + board snapshots so a session survives a server restart
 - [x] Fog of war / hidden tokens controllable by host
-- [ ] Error handling + user-facing messages on desync/disconnect
+- [x] Error handling + user-facing messages on desync/disconnect
 - [ ] e2e Playwright: two browser clients, one moves → other sees it
 
 ---
