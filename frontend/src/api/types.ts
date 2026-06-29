@@ -64,3 +64,31 @@ export interface ResolveInviteResponse {
   /** null for a host (the DM controls no single character slot). */
   character_id: string | null;
 }
+
+/** Host request to place a token (bound to a character) on the board grid. */
+export interface PlaceTokenRequest {
+  character_id: string;
+  /** Grid column (0-based); defaults to 0 server-side. */
+  x?: number;
+  /** Grid row (0-based); defaults to 0 server-side. */
+  y?: number;
+  /** Footprint in grid cells (1 = Medium, 2 = Large, ...); defaults to 1. */
+  size?: number;
+}
+
+/** Host request to reposition/resize a token; omitted fields are unchanged. */
+export interface UpdateTokenRequest {
+  x?: number;
+  y?: number;
+  size?: number;
+}
+
+/** Board-state view of a single token: its binding and grid placement. */
+export interface TokenResponse {
+  id: string;
+  room_id: string;
+  character_id: string;
+  x: number;
+  y: number;
+  size: number;
+}

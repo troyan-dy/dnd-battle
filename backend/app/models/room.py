@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from app.models.character import Character
     from app.models.invite_link import InviteLink
     from app.models.participant import Participant
+    from app.models.token import Token
 
 
 class Room(Base, TimestampMixin):
@@ -46,6 +47,10 @@ class Room(Base, TimestampMixin):
         cascade="all, delete-orphan",
     )
     invite_links: Mapped[list[InviteLink]] = relationship(
+        back_populates="room",
+        cascade="all, delete-orphan",
+    )
+    tokens: Mapped[list[Token]] = relationship(
         back_populates="room",
         cascade="all, delete-orphan",
     )

@@ -31,6 +31,7 @@ from app.models.enums import ParticipantRole
 from app.models.invite_link import InviteLink
 from app.models.participant import Participant
 from app.models.room import Room
+from app.models.token import Token
 from app.schemas.room import (
     AddPlayerRequest,
     AddPlayerResponse,
@@ -38,8 +39,11 @@ from app.schemas.room import (
     CreateRoomResponse,
     InviteLinkResponse,
     MapResponse,
+    PlaceTokenRequest,
     RevokeLinksResponse,
     RoomSummary,
+    TokenResponse,
+    UpdateTokenRequest,
 )
 from app.security.tokens import generate_token, hash_token
 from app.storage.maps import map_image_path, save_map_image
@@ -279,3 +283,113 @@ async def get_map(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Map not found.")
 
     return FileResponse(path, media_type=room.map_content_type or "application/octet-stream")
+
+
+@router.post(
+    "/{room_id}/tokens",
+    response_model=TokenResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def place_token(
+    room_id: uuid.UUID,
+    payload: PlaceTokenRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> TokenResponse:
+    """Host action: place a token bound to a character on the board grid.
+
+    This is the first piece of persisted (server-authoritative) BoardState: the
+    in-memory live board (Phase 4) hydrates from these rows on connect. No auth
+    gate yet — same established host-action pattern as ``add_player``/map upload.
+
+    Validation:
+
+    * the room must exist (404);
+    * the character must exist *and belong to this room* (404 / 422), so a token
+      can never be bound to another room's character;
+    * a character has at most one token — placing a second one is a 409 conflict
+      (reposition the existing token via ``PATCH`` instead);
+    * grid coords and size are bounds-checked by the request schema.
+    """
+    room = await session.get(Room, room_id)
+    if room is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found.")
+
+    character = await session.get(Character, payload.character_id)
+    if character is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found.")
+    if character.room_id != room_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Character does not belong to this room.",
+        )
+
+    existing = (
+        await session.execute(select(Token).where(Token.character_id == payload.character_id))
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Character already has a token; reposition it instead.",
+        )
+
+    token = Token(
+        room_id=room_id,
+        character_id=payload.character_id,
+        x=payload.x,
+        y=payload.y,
+        size=payload.size,
+    )
+    session.add(token)
+    await session.commit()
+    await session.refresh(token)
+
+    return TokenResponse.model_validate(token)
+
+
+@router.get("/{room_id}/tokens", response_model=list[TokenResponse])
+async def list_tokens(
+    room_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[TokenResponse]:
+    """List every token in the room (reconnect-safe: a plain idempotent read).
+
+    This is what a (re)connecting client uses to draw the current board placement
+    before realtime sync (Phase 4) takes over. Returns 404 if the room is unknown.
+    """
+    room = await session.get(Room, room_id)
+    if room is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found.")
+
+    tokens = (await session.execute(select(Token).where(Token.room_id == room_id))).scalars().all()
+    return [TokenResponse.model_validate(t) for t in tokens]
+
+
+@router.patch("/{room_id}/tokens/{token_id}", response_model=TokenResponse)
+async def update_token(
+    room_id: uuid.UUID,
+    token_id: uuid.UUID,
+    payload: UpdateTokenRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> TokenResponse:
+    """Host action: reposition / resize an existing token.
+
+    Only the provided fields change; at least one must be supplied (else 422).
+    Returns 404 if the token does not exist or does not belong to this room.
+    """
+    fields = payload.model_dump(exclude_none=True)
+    if not fields:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Provide at least one of x, y, size.",
+        )
+
+    token = await session.get(Token, token_id)
+    if token is None or token.room_id != room_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found.")
+
+    for key, value in fields.items():
+        setattr(token, key, value)
+    await session.commit()
+    await session.refresh(token)
+
+    return TokenResponse.model_validate(token)

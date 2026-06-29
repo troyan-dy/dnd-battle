@@ -10,6 +10,7 @@ from app.models.enums import ParticipantRole, RoomStatus
 from app.models.invite_link import InviteLink
 from app.models.participant import Participant
 from app.models.room import Room
+from app.models.token import Token
 
 __all__ = [
     "Base",
@@ -19,4 +20,5 @@ __all__ = [
     "ParticipantRole",
     "Room",
     "RoomStatus",
+    "Token",
 ]

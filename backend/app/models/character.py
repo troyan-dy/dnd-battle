@@ -14,6 +14,7 @@ from app.db.base import Base, TimestampMixin
 if TYPE_CHECKING:
     from app.models.participant import Participant
     from app.models.room import Room
+    from app.models.token import Token
 
 
 class Character(Base, TimestampMixin):
@@ -40,3 +41,8 @@ class Character(Base, TimestampMixin):
 
     room: Mapped[Room] = relationship(back_populates="characters")
     owner: Mapped[Participant | None] = relationship(back_populates="character")
+    # At most one board token per character (placed by the host).
+    token: Mapped[Token | None] = relationship(
+        back_populates="character",
+        cascade="all, delete-orphan",
+    )

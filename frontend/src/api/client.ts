@@ -9,7 +9,10 @@ import type {
   AddPlayerResponse,
   CreateRoomRequest,
   CreateRoomResponse,
+  PlaceTokenRequest,
   ResolveInviteResponse,
+  TokenResponse,
+  UpdateTokenRequest,
 } from './types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(
@@ -97,4 +100,37 @@ export function resolveInvite(token: string): Promise<ResolveInviteResponse> {
  */
 export function mapImageUrl(roomId: string): string {
   return API_BASE_URL + '/rooms/' + encodeURIComponent(roomId) + '/map';
+}
+
+/** Host action: place a token bound to a character on the board grid. */
+export function placeToken(roomId: string, payload: PlaceTokenRequest): Promise<TokenResponse> {
+  return request<TokenResponse>('/rooms/' + encodeURIComponent(roomId) + '/tokens', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * List every token currently placed in a room.
+ *
+ * This is what a (re)connecting client uses to draw the current board placement
+ * before realtime sync takes over — an idempotent, reconnect-safe read.
+ */
+export function listTokens(roomId: string): Promise<TokenResponse[]> {
+  return request<TokenResponse[]>('/rooms/' + encodeURIComponent(roomId) + '/tokens');
+}
+
+/** Host action: reposition/resize an existing token. */
+export function updateToken(
+  roomId: string,
+  tokenId: string,
+  payload: UpdateTokenRequest,
+): Promise<TokenResponse> {
+  return request<TokenResponse>(
+    '/rooms/' + encodeURIComponent(roomId) + '/tokens/' + encodeURIComponent(tokenId),
+    {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    },
+  );
 }

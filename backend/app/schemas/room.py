@@ -19,6 +19,16 @@ ABILITY_SCORE_MIN = 1
 ABILITY_SCORE_MAX = 30
 ABILITY_SCORE_DEFAULT = 10
 
+# Board grid coordinate bounds. The server has no map-grid dimensions yet (the
+# grid is configured client-side), so we only enforce non-negativity plus a sane
+# upper cap to reject abusive values. Token footprint is measured in grid cells:
+# 1 = Tiny/Small/Medium, 2 = Large, 3 = Huge, 4 = Gargantuan (D&D 2024 sizes).
+GRID_COORD_MIN = 0
+GRID_COORD_MAX = 9999
+TOKEN_SIZE_MIN = 1
+TOKEN_SIZE_MAX = 8
+TOKEN_SIZE_DEFAULT = 1
+
 
 class AbilityScores(BaseModel):
     """The six D&D 2024 ability scores. Each defaults to the average (10)."""
@@ -146,6 +156,53 @@ class MapResponse(BaseModel):
     room_id: uuid.UUID
     content_type: str = Field(description="Validated image MIME type of the stored map.")
     url: str = Field(description="Path that serves the map image: /rooms/{room_id}/map.")
+
+
+class PlaceTokenRequest(BaseModel):
+    """Host's request to place a token for a character on the board grid.
+
+    Binds the new token to ``character_id`` (which must belong to the room). A
+    character may have at most one token, so placing a second one is a conflict.
+    """
+
+    character_id: uuid.UUID = Field(description="Character this token represents.")
+    x: int = Field(
+        default=0, ge=GRID_COORD_MIN, le=GRID_COORD_MAX, description="Grid column (0-based)."
+    )
+    y: int = Field(
+        default=0, ge=GRID_COORD_MIN, le=GRID_COORD_MAX, description="Grid row (0-based)."
+    )
+    size: int = Field(
+        default=TOKEN_SIZE_DEFAULT,
+        ge=TOKEN_SIZE_MIN,
+        le=TOKEN_SIZE_MAX,
+        description="Footprint in grid cells (1 = Medium, 2 = Large, ...).",
+    )
+
+
+class UpdateTokenRequest(BaseModel):
+    """Host's request to reposition / resize an existing token.
+
+    Every field is optional; omitted fields are left unchanged. At least one must
+    be provided (enforced in the endpoint).
+    """
+
+    x: int | None = Field(default=None, ge=GRID_COORD_MIN, le=GRID_COORD_MAX)
+    y: int | None = Field(default=None, ge=GRID_COORD_MIN, le=GRID_COORD_MAX)
+    size: int | None = Field(default=None, ge=TOKEN_SIZE_MIN, le=TOKEN_SIZE_MAX)
+
+
+class TokenResponse(BaseModel):
+    """Board-state view of a single token: its binding and grid placement."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    room_id: uuid.UUID
+    character_id: uuid.UUID
+    x: int
+    y: int
+    size: int
 
 
 class ResolveInviteResponse(BaseModel):
