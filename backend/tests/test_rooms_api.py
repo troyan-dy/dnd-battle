@@ -574,3 +574,63 @@ async def test_get_character_in_other_room_returns_404(
 
     resp = await client.get(f"/rooms/{room_b}/characters/{character_id}")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_characters_returns_only_this_rooms_characters(
+    client_and_factory: ClientFactory,
+) -> None:
+    """GET /rooms/{id}/characters -> 200: all characters in the room (board hydrate)."""
+    client, _ = client_and_factory
+    room_a = await _create_room(client, "A")
+    room_b = await _create_room(client, "B")
+    aria = (
+        await client.post(
+            f"/rooms/{room_a}/participants",
+            json={"character_name": "Aria", "max_hp": 24},
+        )
+    ).json()
+    bram = (
+        await client.post(
+            f"/rooms/{room_a}/participants",
+            json={"character_name": "Bram", "max_hp": 11},
+        )
+    ).json()
+    # A character in another room must NOT leak into room A's list.
+    await client.post(
+        f"/rooms/{room_b}/participants",
+        json={"character_name": "Other", "max_hp": 9},
+    )
+
+    resp = await client.get(f"/rooms/{room_a}/characters")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    by_id = {c["id"]: c for c in body}
+    assert set(by_id) == {aria["character_id"], bram["character_id"]}
+    assert by_id[aria["character_id"]]["name"] == "Aria"
+    assert by_id[aria["character_id"]]["max_hp"] == 24
+    assert by_id[aria["character_id"]]["conditions"] == []
+
+
+@pytest.mark.asyncio
+async def test_list_characters_empty_room_returns_empty_list(
+    client_and_factory: ClientFactory,
+) -> None:
+    """A room with no characters lists an empty array (not a 404)."""
+    client, _ = client_and_factory
+    room_id = await _create_room(client)
+    resp = await client.get(f"/rooms/{room_id}/characters")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_list_characters_unknown_room_returns_404(
+    client_and_factory: ClientFactory,
+) -> None:
+    """Listing characters of an unknown room -> 404."""
+    client, _ = client_and_factory
+    missing = "00000000-0000-0000-0000-000000000000"
+    resp = await client.get(f"/rooms/{missing}/characters")
+    assert resp.status_code == 404

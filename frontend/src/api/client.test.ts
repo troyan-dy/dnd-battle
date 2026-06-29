@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, getCharacter, listTokens, placeToken, updateToken } from './client';
+import {
+  ApiError,
+  getCharacter,
+  listCharacters,
+  listTokens,
+  placeToken,
+  updateToken,
+} from './client';
 import type { CharacterResponse, TokenResponse } from './types';
 
 const token: TokenResponse = {
@@ -118,5 +125,16 @@ describe('getCharacter', () => {
 
     await expect(getCharacter('room-1', 'missing')).rejects.toMatchObject({ status: 404 });
     await expect(getCharacter('room-1', 'missing')).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('listCharacters GETs the room characters (reconnect-safe board hydrate)', async () => {
+    const fetchMock = mockFetch(() => jsonResponse([character]));
+
+    const result = await listCharacters('room-1');
+
+    expect(result).toEqual([character]);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toMatch(/\/rooms\/room-1\/characters$/);
+    expect(init?.method).toBeUndefined();
   });
 });

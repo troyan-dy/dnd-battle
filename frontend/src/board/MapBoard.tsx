@@ -13,9 +13,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Image as KonvaImage, Layer, Stage } from 'react-konva';
 import type Konva from 'konva';
-import { mapImageUrl } from '../api/client';
+import { listCharacters, listTokens, mapImageUrl } from '../api/client';
 import GridLayer from './GridLayer';
 import { DEFAULT_GRID, MIN_CELL_SIZE, type GridConfig } from './grid';
+import TokenLayer from './TokenLayer';
+import { joinTokens, type PlacedToken } from './tokens';
 import { useImageElement } from './useImageElement';
 import { fitViewport, IDENTITY_VIEWPORT, zoomAtPoint, type Viewport } from './viewport';
 
@@ -56,8 +58,34 @@ export default function MapBoard({ roomId }: MapBoardProps) {
   const [viewport, setViewport] = useState<Viewport>(IDENTITY_VIEWPORT);
   const [grid, setGrid] = useState<GridConfig>(DEFAULT_GRID);
   const [showGrid, setShowGrid] = useState(true);
+  const [tokens, setTokens] = useState<PlacedToken[]>([]);
 
   const updateGrid = (patch: Partial<GridConfig>) => setGrid((g) => ({ ...g, ...patch }));
+
+  // Hydrate the board's tokens (+ their character display data) for this room.
+  // A plain idempotent read, so reloading the link re-fetches the current
+  // placement; realtime updates arrive in Phase 4. Stale results are ignored.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [placed, characters] = await Promise.all([
+          listTokens(roomId),
+          listCharacters(roomId),
+        ]);
+        if (!cancelled) {
+          setTokens(joinTokens(placed, characters));
+        }
+      } catch {
+        if (!cancelled) {
+          setTokens([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [roomId]);
 
   // Frame the map to fit once it (and the container) are known.
   useEffect(() => {
@@ -118,6 +146,7 @@ export default function MapBoard({ roomId }: MapBoardProps) {
                 scale={viewport.scale}
               />
             )}
+            <TokenLayer tokens={tokens} config={grid} />
           </Layer>
         </Stage>
       )}

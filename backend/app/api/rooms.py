@@ -286,6 +286,31 @@ async def get_map(
     return FileResponse(path, media_type=room.map_content_type or "application/octet-stream")
 
 
+@router.get("/{room_id}/characters", response_model=list[CharacterResponse])
+async def list_characters(
+    room_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[CharacterResponse]:
+    """List every character in the room (reconnect-safe: a plain idempotent read).
+
+    This is what the board uses to hydrate token display data (name, HP,
+    conditions) in a single request, instead of one ``get_character`` call per
+    token. No auth gate yet — consistent with the rest of the room read API (the
+    link is the credential; server-enforced permissions are the Phase 7 task).
+    Returns 404 if the room is unknown.
+    """
+    room = await session.get(Room, room_id)
+    if room is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found.")
+
+    characters = (
+        (await session.execute(select(Character).where(Character.room_id == room_id)))
+        .scalars()
+        .all()
+    )
+    return [CharacterResponse.model_validate(c) for c in characters]
+
+
 @router.get("/{room_id}/characters/{character_id}", response_model=CharacterResponse)
 async def get_character(
     room_id: uuid.UUID,

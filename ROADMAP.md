@@ -35,7 +35,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Character config UI (host): name, portrait, stats, max HP
 - [x] Place tokens on the grid; bind each token to a character
 - [x] Player view: opening a player link shows board + only their character panel
-- [ ] Token rendering: name, HP bar, current conditions
+- [x] Token rendering: name, HP bar, current conditions
 
 ## Phase 4 — Realtime sync (the core)
 - [ ] python-socketio mounted on FastAPI; client connects via socket.io-client

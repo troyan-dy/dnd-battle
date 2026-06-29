@@ -106,6 +106,17 @@ export function getCharacter(roomId: string, characterId: string): Promise<Chara
 }
 
 /**
+ * List every character in a room (GET /rooms/{id}/characters).
+ *
+ * The board hydrates token display data (name, HP, conditions) from this in a
+ * single request instead of one getCharacter call per token. Idempotent and
+ * reconnect-safe.
+ */
+export function listCharacters(roomId: string): Promise<CharacterResponse[]> {
+  return request<CharacterResponse[]>('/rooms/' + encodeURIComponent(roomId) + '/characters');
+}
+
+/**
  * Absolute URL that streams a room's stored map image (GET /rooms/{id}/map).
  *
  * Returned as a plain URL (not fetched here) so it can be used directly as an
