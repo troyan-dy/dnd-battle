@@ -59,7 +59,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] Ability scores, modifiers, proficiency bonus
 - [x] Attack roll vs AC; advantage/disadvantage
 - [x] Damage rolls + types; basic resistances
-- [ ] Conditions (2024 list) with their mechanical effects
+- [x] Conditions (2024 list) with their mechanical effects
 - [ ] Wire rules engine into the attack/damage actions from Phase 5
 
 ## Phase 7 — Permissions, persistence, polish

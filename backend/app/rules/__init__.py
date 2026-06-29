@@ -54,6 +54,14 @@ from app.rules.attack import (
     resolve_attack,
     select_d20,
 )
+from app.rules.conditions import (
+    CONDITION_EFFECTS,
+    Condition,
+    ConditionEffect,
+    condition_effect,
+    incoming_attack_advantage,
+    outgoing_attack_advantage,
+)
 from app.rules.damage import (
     DamageResult,
     DamageType,
@@ -77,6 +85,7 @@ from app.rules.dice import (
 )
 
 __all__ = [
+    "CONDITION_EFFECTS",
     "D20_SIDES",
     "MAX_ABILITY_SCORE",
     "MAX_ARMOR_CLASS",
@@ -101,6 +110,8 @@ __all__ = [
     "ArmorClassError",
     "AttackBonusError",
     "AttackRoll",
+    "Condition",
+    "ConditionEffect",
     "DamageResult",
     "DamageType",
     "Defense",
@@ -111,8 +122,11 @@ __all__ = [
     "ability_modifier",
     "apply_defense",
     "attack_hits",
+    "condition_effect",
     "d20_count",
     "format_modifier",
+    "incoming_attack_advantage",
+    "outgoing_attack_advantage",
     "parse_dice",
     "proficiency_bonus",
     "resolve_attack",
