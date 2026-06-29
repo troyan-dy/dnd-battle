@@ -27,7 +27,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 
 ## Phase 2 — Map & board rendering
 - [x] API: host uploads a map image; stored + served
-- [ ] Frontend: render map on a Konva stage; pan + zoom
+- [x] Frontend: render map on a Konva stage; pan + zoom
 - [ ] Grid overlay (square grid first), configurable cell size + offset
 - [ ] Board viewport syncs nothing yet — purely local rendering
 

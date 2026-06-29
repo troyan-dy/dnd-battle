@@ -1,0 +1,63 @@
+import { render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ImageElementState } from './useImageElement';
+
+// react-konva needs a real canvas, which jsdom lacks. Replace its components
+// with plain DOM stand-ins so we can assert MapBoard's wiring without a canvas.
+vi.mock('react-konva', () => ({
+  Stage: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="stage">{children}</div>
+  ),
+  Layer: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="layer">{children}</div>
+  ),
+  Image: (props: { width?: number; height?: number }) => (
+    <div data-testid="konva-image" data-width={props.width} data-height={props.height} />
+  ),
+}));
+
+// Drive MapBoard's load state directly.
+const imageState = vi.hoisted(() => ({
+  current: { image: null, status: 'loading' } as ImageElementState,
+}));
+vi.mock('./useImageElement', () => ({
+  useImageElement: () => imageState.current,
+}));
+
+import MapBoard from './MapBoard';
+
+afterEach(() => {
+  imageState.current = { image: null, status: 'loading' };
+});
+
+describe('MapBoard', () => {
+  it('shows a loading message while the map is loading', () => {
+    imageState.current = { image: null, status: 'loading' };
+    render(<MapBoard roomId="room-1" />);
+    expect(screen.getByRole('status')).toHaveTextContent(/loading map/i);
+    expect(screen.queryByTestId('stage')).toBeNull();
+  });
+
+  it('shows a no-map message on error', () => {
+    imageState.current = { image: null, status: 'error' };
+    render(<MapBoard roomId="room-1" />);
+    expect(screen.getByRole('alert')).toHaveTextContent(/no map/i);
+    expect(screen.queryByTestId('stage')).toBeNull();
+  });
+
+  it('renders the konva stage with the image once loaded', () => {
+    const img = { width: 640, height: 480 } as HTMLImageElement;
+    imageState.current = { image: img, status: 'loaded' };
+
+    // Container needs a measured size for the stage to render.
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+
+    render(<MapBoard roomId="room-1" />);
+
+    expect(screen.getByTestId('stage')).toBeInTheDocument();
+    const konvaImage = screen.getByTestId('konva-image');
+    expect(konvaImage).toHaveAttribute('data-width', '640');
+    expect(konvaImage).toHaveAttribute('data-height', '480');
+  });
+});

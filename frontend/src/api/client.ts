@@ -69,3 +69,13 @@ export function createRoom(payload: CreateRoomRequest): Promise<CreateRoomRespon
 export function resolveInvite(token: string): Promise<ResolveInviteResponse> {
   return request<ResolveInviteResponse>('/invites/' + encodeURIComponent(token));
 }
+
+/**
+ * Absolute URL that streams a room's stored map image (GET /rooms/{id}/map).
+ *
+ * Returned as a plain URL (not fetched here) so it can be used directly as an
+ * <img>/Konva image source. The read is idempotent and reconnect-safe.
+ */
+export function mapImageUrl(roomId: string): string {
+  return API_BASE_URL + '/rooms/' + encodeURIComponent(roomId) + '/map';
+}
