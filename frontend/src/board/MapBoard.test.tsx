@@ -25,10 +25,19 @@ vi.mock('react-konva', () => ({
 }));
 
 // Keep MapBoard's board-hydrate effect offline: no tokens by default.
+const uploadMapMock = vi.hoisted(() => vi.fn(() => Promise.resolve({ url: 'x' })));
 vi.mock('../api/client', () => ({
+  ApiError: class ApiError extends Error {
+    status: number;
+    constructor(status: number, message: string) {
+      super(message);
+      this.status = status;
+    }
+  },
   mapImageUrl: (roomId: string) => 'http://test/rooms/' + roomId + '/map',
   listTokens: vi.fn(() => Promise.resolve([])),
   listCharacters: vi.fn(() => Promise.resolve([])),
+  uploadMap: uploadMapMock,
 }));
 
 // Don't open a real Socket.IO connection in jsdom; hand back a fake socket and
@@ -112,8 +121,30 @@ describe('MapBoard', () => {
   it('shows a no-map message on error', async () => {
     imageState.current = { image: null, status: 'error' };
     render(<MapBoard roomId="room-1" token="tok-1" />);
-    expect(screen.getByRole('alert')).toHaveTextContent(/no map/i);
+    expect(screen.getByText(/no map/i)).toBeInTheDocument();
     expect(screen.queryByTestId('stage')).toBeNull();
+    await flushHydrate();
+  });
+
+  it('lets the host upload a map when none exists yet', async () => {
+    uploadMapMock.mockClear();
+    imageState.current = { image: null, status: 'error' };
+    render(<MapBoard roomId="room-1" token="tok-1" isHost />);
+
+    const input = screen.getByLabelText(/upload a map/i) as HTMLInputElement;
+    const file = new File(['x'], 'map.png', { type: 'image/png' });
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } });
+    });
+
+    expect(uploadMapMock).toHaveBeenCalledWith('room-1', file);
+    await flushHydrate();
+  });
+
+  it('does not offer map upload to a player', async () => {
+    imageState.current = { image: null, status: 'error' };
+    render(<MapBoard roomId="room-1" token="tok-1" />);
+    expect(screen.queryByLabelText(/upload a map/i)).toBeNull();
     await flushHydrate();
   });
 

@@ -16,12 +16,17 @@ export function parseInviteToken(pathname: string): string | null {
 }
 
 /**
- * Parse a host "/rooms/:roomId/characters" path into its room id, or null for any
+ * Parse a host "/host/:roomId/characters" path into its room id, or null for any
  * other path. This is where the DM configures characters (name, stats, portrait,
  * max HP) and hands out per-player invite links.
+ *
+ * NOTE: this lives under "/host", NOT "/rooms". The backend REST API owns the
+ * "/rooms/*" namespace (e.g. GET /rooms/:id/characters returns JSON), and the
+ * nginx reverse proxy forwards every "/rooms" request to the backend — so a SPA
+ * page under "/rooms" would be shadowed by the API and render raw JSON.
  */
 export function parseRoomCharactersRoomId(pathname: string): string | null {
-  const match = /^\/rooms\/([^/]+)\/characters\/?$/.exec(pathname);
+  const match = /^\/host\/([^/]+)\/characters\/?$/.exec(pathname);
   if (!match) {
     return null;
   }

@@ -79,6 +79,70 @@ describe('CharacterConfigScreen', () => {
     expect(linkField.value).toBe(okResponse.invite_link.url);
   });
 
+  it('places the character on the board (cascaded) after it is added', async () => {
+    // Route by method+path: add player, list existing tokens (two already there),
+    // then place the new token. The third token should cascade to (2, 0).
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+      if (url.endsWith('/participants')) {
+        return Promise.resolve(jsonResponse(okResponse, 201));
+      }
+      if (url.endsWith('/tokens') && method === 'GET') {
+        return Promise.resolve(jsonResponse([{ id: 't1' }, { id: 't2' }]));
+      }
+      return Promise.resolve(jsonResponse({ id: 't3' }, 201)); // POST /tokens
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<CharacterConfigScreen roomId="room-9" />);
+    fireEvent.change(screen.getByLabelText(/character name/i), { target: { value: 'Aria' } });
+    fireEvent.click(screen.getByRole('button', { name: /add character/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /character added/i })).toBeInTheDocument();
+    });
+
+    const placeCall = fetchMock.mock.calls.find(
+      ([u, i]) => String(u).endsWith('/tokens') && (i?.method ?? 'GET') === 'POST',
+    );
+    expect(placeCall).toBeTruthy();
+    expect(JSON.parse(String(placeCall?.[1]?.body))).toEqual({
+      character_id: 'char-1',
+      x: 2,
+      y: 0,
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('shows a non-fatal warning if the token cannot be placed', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+      if (url.endsWith('/participants')) {
+        return Promise.resolve(jsonResponse(okResponse, 201));
+      }
+      if (url.endsWith('/tokens') && method === 'GET') {
+        return Promise.resolve(jsonResponse([]));
+      }
+      return Promise.resolve(jsonResponse({ detail: 'boom' }, 500)); // POST /tokens fails
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<CharacterConfigScreen roomId="room-9" />);
+    fireEvent.change(screen.getByLabelText(/character name/i), { target: { value: 'Aria' } });
+    fireEvent.click(screen.getByRole('button', { name: /add character/i }));
+
+    // The character is still added (link shown) and a warning explains the token.
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /character added/i })).toBeInTheDocument();
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(/token could not be placed/i);
+    expect((screen.getByLabelText(/invite link/i) as HTMLInputElement).value).toBe(
+      okResponse.invite_link.url,
+    );
+  });
+
   it('shows the server error message on failure and keeps the form usable', async () => {
     mockFetch(() =>
       jsonResponse({ detail: 'portrait_url must be an http:// or https:// URL.' }, 422),

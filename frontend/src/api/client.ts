@@ -10,6 +10,7 @@ import type {
   CharacterResponse,
   CreateRoomRequest,
   CreateRoomResponse,
+  MapResponse,
   PlaceTokenRequest,
   ResolveInviteResponse,
   TokenResponse,
@@ -124,6 +125,36 @@ export function listCharacters(roomId: string): Promise<CharacterResponse[]> {
  */
 export function mapImageUrl(roomId: string): string {
   return API_BASE_URL + '/rooms/' + encodeURIComponent(roomId) + '/map';
+}
+
+/**
+ * Host action: upload (or replace) the room's encounter map image
+ * (POST /rooms/{id}/map, multipart `file`).
+ *
+ * Uses fetch directly rather than `request()` because the body is multipart
+ * form data: the browser must set its own `Content-Type` (with the boundary),
+ * so we must NOT send the JSON content-type header `request()` always applies.
+ */
+export async function uploadMap(roomId: string, file: File): Promise<MapResponse> {
+  const form = new FormData();
+  form.append('file', file);
+
+  let response: Response;
+  try {
+    response = await fetch(API_BASE_URL + '/rooms/' + encodeURIComponent(roomId) + '/map', {
+      method: 'POST',
+      body: form,
+    });
+  } catch {
+    throw new ApiError(0, 'Could not reach the server. Check your connection.');
+  }
+
+  if (!response.ok) {
+    const detail = await extractDetail(response);
+    throw new ApiError(response.status, detail);
+  }
+
+  return (await response.json()) as MapResponse;
 }
 
 /** Host action: place a token bound to a character on the board grid. */

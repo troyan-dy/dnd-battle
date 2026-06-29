@@ -72,7 +72,7 @@ export default function CreateRoomScreen() {
           This link is shown only once — keep it safe. Configure characters and invite players next.
         </p>
         <p>
-          <a href={`/rooms/${room.id}/characters`}>Configure characters &rarr;</a>
+          <a href={`/host/${room.id}/characters`}>Configure characters &rarr;</a>
         </p>
       </main>
     );

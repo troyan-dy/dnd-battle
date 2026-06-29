@@ -23,7 +23,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image as KonvaImage, Layer, Stage } from 'react-konva';
 import type Konva from 'konva';
 import type { Socket } from 'socket.io-client';
-import { listCharacters, listTokens, mapImageUrl } from '../api/client';
+import { ApiError, listCharacters, listTokens, mapImageUrl, uploadMap } from '../api/client';
 import type { CharacterResponse, InitiativeState, TokenResponse } from '../api/types';
 import { createBoardSocket, emitAction } from '../realtime/connection';
 import {
@@ -111,7 +111,13 @@ export default function MapBoard({
   controllableCharacterId = null,
 }: MapBoardProps) {
   const [containerRef, size] = useElementSize();
-  const { image, status } = useImageElement(mapImageUrl(roomId));
+  // Bumped after a host (re)uploads the map; appended to the image URL as a
+  // cache-buster so the browser re-fetches GET /rooms/{id}/map (same URL).
+  const [mapVersion, setMapVersion] = useState(0);
+  const mapUrl = mapVersion > 0 ? `${mapImageUrl(roomId)}?v=${mapVersion}` : mapImageUrl(roomId);
+  const { image, status } = useImageElement(mapUrl);
+  const [uploadingMap, setUploadingMap] = useState(false);
+  const [mapUploadError, setMapUploadError] = useState<string | null>(null);
   const [viewport, setViewport] = useState<Viewport>(IDENTITY_VIEWPORT);
   const [grid, setGrid] = useState<GridConfig>(DEFAULT_GRID);
   const [showGrid, setShowGrid] = useState(true);
@@ -432,6 +438,28 @@ export default function MapBoard({
     setViewport((v) => ({ ...v, x: stage.x(), y: stage.y() }));
   };
 
+  // Host-only: upload (or replace) the room's map. On success bump mapVersion so
+  // useImageElement re-fetches GET /rooms/{id}/map (the URL is otherwise stable).
+  const handleMapUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file later
+    if (!file) {
+      return;
+    }
+    setUploadingMap(true);
+    setMapUploadError(null);
+    try {
+      await uploadMap(roomId, file);
+      setMapVersion((v) => v + 1);
+    } catch (err) {
+      setMapUploadError(
+        err instanceof ApiError ? err.message : 'Could not upload the map. Try again.',
+      );
+    } finally {
+      setUploadingMap(false);
+    }
+  };
+
   return (
     <div ref={containerRef} className="map-board" data-status={status}>
       {connection === 'reconnecting' && banner && (
@@ -462,9 +490,30 @@ export default function MapBoard({
         </p>
       )}
       {status === 'error' && (
-        <p className="map-board__overlay" role="alert">
-          No map has been uploaded for this room yet.
-        </p>
+        <div className="map-board__overlay" role="status">
+          <p>No map has been uploaded for this room yet.</p>
+          {isHost ? (
+            <p className="map-board__map-upload">
+              <label className="map-board__upload-button">
+                {uploadingMap ? 'Uploading…' : 'Upload a map'}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  disabled={uploadingMap}
+                  onChange={(e) => void handleMapUpload(e)}
+                  hidden
+                />
+              </label>
+              {mapUploadError ? (
+                <span role="alert" className="error">
+                  {mapUploadError}
+                </span>
+              ) : null}
+            </p>
+          ) : (
+            <p className="hint">Ask your DM to set up the encounter map.</p>
+          )}
+        </div>
       )}
       {status === 'loaded' && image && size.width > 0 && size.height > 0 && (
         <Stage
@@ -521,6 +570,18 @@ export default function MapBoard({
           >
             Ping
           </button>
+          {isHost && (
+            <label className="map-board__upload-button">
+              {uploadingMap ? 'Uploading…' : 'Replace map'}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                disabled={uploadingMap}
+                onChange={(e) => void handleMapUpload(e)}
+                hidden
+              />
+            </label>
+          )}
           <label>
             <input
               type="checkbox"

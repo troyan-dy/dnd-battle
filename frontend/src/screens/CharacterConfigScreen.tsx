@@ -7,8 +7,12 @@
 // can keep adding characters one after another.
 
 import { useState } from 'react';
-import { ApiError, addPlayer } from '../api/client';
+import { ApiError, addPlayer, listTokens, placeToken } from '../api/client';
 import type { AbilityScores, AddPlayerResponse } from '../api/types';
+
+// How wide a band to cascade auto-placed tokens across before wrapping to the
+// next row, so multiple added characters don't all stack on cell (0, 0).
+const TOKEN_CASCADE_WIDTH = 20;
 
 type Status = 'idle' | 'submitting';
 
@@ -50,6 +54,8 @@ export default function CharacterConfigScreen({ roomId }: { roomId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AddPlayerResponse | null>(null);
   const [copied, setCopied] = useState(false);
+  // Non-fatal: the character was created but its board token couldn't be placed.
+  const [tokenWarning, setTokenWarning] = useState<string | null>(null);
 
   const trimmedName = name.trim();
   const hp = Number(maxHp);
@@ -68,6 +74,7 @@ export default function CharacterConfigScreen({ roomId }: { roomId: string }) {
     setStatus('submitting');
     setError(null);
     setCopied(false);
+    setTokenWarning(null);
     try {
       const response = await addPlayer(roomId, {
         character_name: trimmedName,
@@ -76,6 +83,26 @@ export default function CharacterConfigScreen({ roomId }: { roomId: string }) {
         portrait_url: portraitUrl.trim() || null,
         display_name: playerName.trim() || null,
       });
+      // Put the character on the board immediately: the board renders tokens, not
+      // bare characters, so without this a freshly-added character is invisible.
+      // Cascade across a band so multiple characters don't stack on cell (0, 0);
+      // the host can drag them into position on the board. Token placement is a
+      // best-effort follow-up — if it fails, the character (and its invite link)
+      // still exist, so we surface a warning instead of failing the whole add.
+      try {
+        const existing = await listTokens(roomId);
+        await placeToken(roomId, {
+          character_id: response.character_id,
+          x: existing.length % TOKEN_CASCADE_WIDTH,
+          y: Math.floor(existing.length / TOKEN_CASCADE_WIDTH),
+        });
+      } catch (err) {
+        const detail = err instanceof ApiError ? err.message : 'unknown error';
+        setTokenWarning(
+          `Character created, but its board token could not be placed (${detail}). ` +
+            `You can add it from the board.`,
+        );
+      }
       setResult(response);
     } catch (err) {
       const message =
@@ -104,6 +131,7 @@ export default function CharacterConfigScreen({ roomId }: { roomId: string }) {
     setPlayerName('');
     setError(null);
     setCopied(false);
+    setTokenWarning(null);
   }
 
   if (result) {
@@ -111,6 +139,13 @@ export default function CharacterConfigScreen({ roomId }: { roomId: string }) {
     return (
       <main className="screen">
         <h1>Character added</h1>
+        {tokenWarning ? (
+          <p role="alert" className="error">
+            {tokenWarning}
+          </p>
+        ) : (
+          <p className="hint">The character's token is now on the board.</p>
+        )}
         <p>Share this one-time invite link with the player — it binds them to this character:</p>
         <div className="link-row">
           <input

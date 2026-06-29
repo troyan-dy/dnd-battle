@@ -314,6 +314,13 @@ export type BroadcastActionPayload =
 /** Backward-compatible alias for an INTENT payload (what a client sends). */
 export type ActionPayload = IntentActionPayload;
 
+/** Server response after a host uploads (or replaces) a room's map image. */
+export interface MapResponse {
+  room_id: string;
+  content_type: string;
+  url: string;
+}
+
 /**
  * Client → server: a request to perform a board action. Carries only the
  * protocol version and payload; the server stamps actor/room/id itself.
