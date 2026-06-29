@@ -284,3 +284,90 @@
 .map-board__grid-controls input[type='number'] {
   width: 4rem;
 }
+
+/* Player view: shared board on the left, the player's own character panel right */
+.board-view {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  margin: 0;
+}
+.board-view__board {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+}
+.character-panel {
+  flex: 0 0 280px;
+  box-sizing: border-box;
+  height: 100%;
+  overflow-y: auto;
+  padding: 1rem;
+  background: #15151a;
+  color: #e6e6ec;
+  border-left: 1px solid #2c2c34;
+}
+.character-panel__portrait {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+.character-panel__name {
+  margin: 0.6rem 0 0.4rem;
+  font-size: 1.2rem;
+}
+.character-panel__hp {
+  margin: 0.5rem 0 0.9rem;
+}
+.character-panel__hp-label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.85rem;
+  color: #cfcfd6;
+}
+.character-panel__hp-bar {
+  height: 10px;
+  border-radius: 5px;
+  background: #34343c;
+  overflow: hidden;
+}
+.character-panel__hp-fill {
+  height: 100%;
+  background: #4caf50;
+  transition: width 0.2s ease;
+}
+.character-panel__abilities {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+.character-panel__ability {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-radius: 6px;
+  background: #20202a;
+}
+.character-panel__ability-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: #9a9aa6;
+}
+.character-panel__ability-score {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+.character-panel__ability-mod {
+  font-size: 0.85rem;
+  color: #cfcfd6;
+}
+.character-panel__conditions h3 {
+  margin: 0 0 0.3rem;
+  font-size: 0.9rem;
+}

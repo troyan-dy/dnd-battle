@@ -472,3 +472,105 @@ async def test_revoke_participant_in_other_room_returns_404(
     resp = await client.post(f"/rooms/{room_b}/participants/{participant_id}/revoke")
     assert resp.status_code == 404
     assert (await client.get(f"/invites/{token}")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_get_character_returns_stat_block(
+    client_and_factory: ClientFactory,
+) -> None:
+    """GET /rooms/{id}/characters/{cid} -> 200: the player view's character panel data."""
+    client, _ = client_and_factory
+    room_id = await _create_room(client, "Crypt")
+    player = (
+        await client.post(
+            f"/rooms/{room_id}/participants",
+            json={
+                "character_name": "Aria",
+                "max_hp": 24,
+                "ability_scores": {
+                    "strength": 8,
+                    "dexterity": 16,
+                    "constitution": 14,
+                    "intelligence": 12,
+                    "wisdom": 10,
+                    "charisma": 18,
+                },
+                "portrait_url": "https://example.com/aria.png",
+            },
+        )
+    ).json()
+    character_id = player["character_id"]
+
+    resp = await client.get(f"/rooms/{room_id}/characters/{character_id}")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"] == character_id
+    assert body["room_id"] == room_id
+    assert body["name"] == "Aria"
+    assert body["max_hp"] == 24
+    assert body["current_hp"] == 24
+    assert body["portrait_url"] == "https://example.com/aria.png"
+    assert body["ability_scores"]["dexterity"] == 16
+    assert body["ability_scores"]["charisma"] == 18
+    assert body["conditions"] == []
+
+
+@pytest.mark.asyncio
+async def test_get_character_defaults_scores_when_omitted(
+    client_and_factory: ClientFactory,
+) -> None:
+    """A character added without scores reads back all-10 defaults and no portrait."""
+    client, _ = client_and_factory
+    room_id = await _create_room(client)
+    player = (
+        await client.post(
+            f"/rooms/{room_id}/participants",
+            json={"character_name": "Bram", "max_hp": 11},
+        )
+    ).json()
+    character_id = player["character_id"]
+
+    body = (await client.get(f"/rooms/{room_id}/characters/{character_id}")).json()
+
+    assert body["portrait_url"] is None
+    assert body["ability_scores"] == {
+        "strength": 10,
+        "dexterity": 10,
+        "constitution": 10,
+        "intelligence": 10,
+        "wisdom": 10,
+        "charisma": 10,
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_character_unknown_returns_404(
+    client_and_factory: ClientFactory,
+) -> None:
+    """An unknown character id -> 404."""
+    client, _ = client_and_factory
+    room_id = await _create_room(client)
+    missing = "00000000-0000-0000-0000-000000000000"
+    resp = await client.get(f"/rooms/{room_id}/characters/{missing}")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_character_in_other_room_returns_404(
+    client_and_factory: ClientFactory,
+) -> None:
+    """A character cannot be read via a different room's id (cross-room guard)."""
+    client, _ = client_and_factory
+    room_a = await _create_room(client, "A")
+    room_b = await _create_room(client, "B")
+    player = (
+        await client.post(
+            f"/rooms/{room_a}/participants",
+            json={"character_name": "Aria", "max_hp": 10},
+        )
+    ).json()
+    character_id = player["character_id"]
+
+    resp = await client.get(f"/rooms/{room_b}/characters/{character_id}")
+    assert resp.status_code == 404

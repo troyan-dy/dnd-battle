@@ -35,6 +35,7 @@ from app.models.token import Token
 from app.schemas.room import (
     AddPlayerRequest,
     AddPlayerResponse,
+    CharacterResponse,
     CreateRoomRequest,
     CreateRoomResponse,
     InviteLinkResponse,
@@ -283,6 +284,26 @@ async def get_map(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Map not found.")
 
     return FileResponse(path, media_type=room.map_content_type or "application/octet-stream")
+
+
+@router.get("/{room_id}/characters/{character_id}", response_model=CharacterResponse)
+async def get_character(
+    room_id: uuid.UUID,
+    character_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> CharacterResponse:
+    """Read a single character's stat block (reconnect-safe idempotent read).
+
+    The player view calls this after the invite resolves to a ``character_id`` to
+    render the player's own character panel. No auth gate yet — consistent with the
+    rest of the room read API (the link is the credential; server-enforced
+    permissions are the explicit Phase 7 task). Returns 404 if the character is
+    unknown or belongs to another room (cross-room guard).
+    """
+    character = await session.get(Character, character_id)
+    if character is None or character.room_id != room_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found.")
+    return CharacterResponse.model_validate(character)
 
 
 @router.post(

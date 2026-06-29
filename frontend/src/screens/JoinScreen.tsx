@@ -8,6 +8,8 @@
 import { useEffect, useState } from 'react';
 import { ApiError, resolveInvite } from '../api/client';
 import type { ResolveInviteResponse } from '../api/types';
+import MapBoard from '../board/MapBoard';
+import CharacterPanel from './CharacterPanel';
 
 type State =
   | { status: 'loading' }
@@ -72,21 +74,26 @@ export default function JoinScreen({ token }: { token: string }) {
     );
   }
 
+  // Resolved: render the shared board. A player additionally sees ONLY their own
+  // character panel (the server resolves the link to a single character_id); a
+  // host sees the board without a single-character panel (the DM controls all
+  // tokens, not one slot).
   const { role, room_id, character_id } = state.data;
+  const isPlayer = role === 'player' && character_id !== null;
+
   return (
-    <main className="screen">
-      <h1>You&apos;re in</h1>
-      <p>
-        Joined room <code>{room_id}</code> as <strong>{role}</strong>.
-      </p>
-      {role === 'player' && character_id ? (
-        <p>
-          You control character <code>{character_id}</code>.
-        </p>
+    <main className="board-view" data-role={role}>
+      <div className="board-view__board">
+        <MapBoard roomId={room_id} />
+      </div>
+      {isPlayer ? (
+        <CharacterPanel roomId={room_id} characterId={character_id} />
       ) : (
-        <p>You are the Dungeon Master for this room.</p>
+        <aside className="character-panel character-panel--host">
+          <h2>Dungeon Master</h2>
+          <p className="hint">You control the encounter and every token in this room.</p>
+        </aside>
       )}
-      <p className="hint">The board will appear here once it is built (Phase 2+).</p>
     </main>
   );
 }

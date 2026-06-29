@@ -1,5 +1,12 @@
 import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// JoinScreen renders MapBoard (react-konva), which needs a real canvas jsdom lacks.
+// Stub it so App routing can be tested without pulling in konva's node build.
+vi.mock('./board/MapBoard', () => ({
+  default: ({ roomId }: { roomId: string }) => <div data-testid="map-board">board:{roomId}</div>,
+}));
+
 import App from './App';
 
 afterEach(() => {

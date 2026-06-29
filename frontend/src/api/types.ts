@@ -57,6 +57,20 @@ export interface AddPlayerResponse {
   invite_link: InviteLink;
 }
 
+/** Read view of a character's stat block — drives the player's character panel. */
+export interface CharacterResponse {
+  id: string;
+  room_id: string;
+  name: string;
+  max_hp: number;
+  current_hp: number;
+  /** http(s) portrait URL, or null. */
+  portrait_url: string | null;
+  ability_scores: AbilityScores;
+  /** Active D&D 2024 condition names. */
+  conditions: string[];
+}
+
 export interface ResolveInviteResponse {
   room_id: string;
   participant_id: string;

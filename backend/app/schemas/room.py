@@ -205,6 +205,26 @@ class TokenResponse(BaseModel):
     size: int
 
 
+class CharacterResponse(BaseModel):
+    """Read view of a character's stat block.
+
+    Returned by ``GET /rooms/{room_id}/characters/{character_id}`` so a player view
+    can render the player's own character panel after the invite resolves to a
+    ``character_id``. A plain idempotent read (reconnect-safe); no secrets.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    room_id: uuid.UUID
+    name: str
+    max_hp: int
+    current_hp: int
+    portrait_url: str | None
+    ability_scores: AbilityScores
+    conditions: list[str]
+
+
 class ResolveInviteResponse(BaseModel):
     """Result of resolving an invite token -> who/where the link binds the visitor.
 

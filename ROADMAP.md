@@ -34,7 +34,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 ## Phase 3 — Characters & tokens
 - [x] Character config UI (host): name, portrait, stats, max HP
 - [x] Place tokens on the grid; bind each token to a character
-- [ ] Player view: opening a player link shows board + only their character panel
+- [x] Player view: opening a player link shows board + only their character panel
 - [ ] Token rendering: name, HP bar, current conditions
 
 ## Phase 4 — Realtime sync (the core)

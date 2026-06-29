@@ -7,6 +7,7 @@
 import type {
   AddPlayerRequest,
   AddPlayerResponse,
+  CharacterResponse,
   CreateRoomRequest,
   CreateRoomResponse,
   PlaceTokenRequest,
@@ -90,6 +91,18 @@ export function addPlayer(roomId: string, payload: AddPlayerRequest): Promise<Ad
 /** Resolve an invite token to its room/participant/character binding. */
 export function resolveInvite(token: string): Promise<ResolveInviteResponse> {
   return request<ResolveInviteResponse>('/invites/' + encodeURIComponent(token));
+}
+
+/**
+ * Read a single character's stat block (GET /rooms/{id}/characters/{cid}).
+ *
+ * Used by the player view to render the player's own character panel after the
+ * invite resolves to a character id. An idempotent, reconnect-safe read.
+ */
+export function getCharacter(roomId: string, characterId: string): Promise<CharacterResponse> {
+  return request<CharacterResponse>(
+    '/rooms/' + encodeURIComponent(roomId) + '/characters/' + encodeURIComponent(characterId),
+  );
 }
 
 /**

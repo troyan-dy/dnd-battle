@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, listTokens, placeToken, updateToken } from './client';
-import type { TokenResponse } from './types';
+import { ApiError, getCharacter, listTokens, placeToken, updateToken } from './client';
+import type { CharacterResponse, TokenResponse } from './types';
 
 const token: TokenResponse = {
   id: 'tok-1',
@@ -80,5 +80,43 @@ describe('token client', () => {
       status: 409,
     });
     await expect(placeToken('room-1', { character_id: 'char-1' })).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe('getCharacter', () => {
+  const character: CharacterResponse = {
+    id: 'char-1',
+    room_id: 'room-1',
+    name: 'Aria',
+    max_hp: 24,
+    current_hp: 18,
+    portrait_url: null,
+    ability_scores: {
+      strength: 10,
+      dexterity: 16,
+      constitution: 14,
+      intelligence: 12,
+      wisdom: 10,
+      charisma: 18,
+    },
+    conditions: [],
+  };
+
+  it('GETs the player character (reconnect-safe read)', async () => {
+    const fetchMock = mockFetch(() => jsonResponse(character));
+
+    const result = await getCharacter('room-1', 'char-1');
+
+    expect(result).toEqual(character);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toMatch(/\/rooms\/room-1\/characters\/char-1$/);
+    expect(init?.method).toBeUndefined();
+  });
+
+  it('surfaces a 404 as an ApiError carrying the status', async () => {
+    mockFetch(() => jsonResponse({ detail: 'Character not found.' }, 404));
+
+    await expect(getCharacter('room-1', 'missing')).rejects.toMatchObject({ status: 404 });
+    await expect(getCharacter('room-1', 'missing')).rejects.toBeInstanceOf(ApiError);
   });
 });
