@@ -29,7 +29,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (see STAT
 - [x] API: host uploads a map image; stored + served
 - [x] Frontend: render map on a Konva stage; pan + zoom
 - [x] Grid overlay (square grid first), configurable cell size + offset
-- [ ] Board viewport syncs nothing yet — purely local rendering
+- [x] Board viewport syncs nothing yet — purely local rendering
 
 ## Phase 3 — Characters & tokens
 - [ ] Character config UI (host): name, portrait, stats, max HP
