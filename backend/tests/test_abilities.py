@@ -4,10 +4,6 @@ from __future__ import annotations
 
 import pytest
 from app.rules import (
-    MAX_ABILITY_SCORE,
-    MAX_LEVEL,
-    MIN_ABILITY_SCORE,
-    MIN_LEVEL,
     Ability,
     AbilityModifier,
     AbilityScoreError,
@@ -16,6 +12,7 @@ from app.rules import (
     format_modifier,
     proficiency_bonus,
 )
+from app.rules.abilities import MAX_ABILITY_SCORE, MAX_LEVEL, MIN_ABILITY_SCORE, MIN_LEVEL
 
 
 @pytest.mark.parametrize(
@@ -38,7 +35,10 @@ def test_ability_modifier_formula(score: int, expected: int) -> None:
     assert ability_modifier(score) == expected
 
 
-@pytest.mark.parametrize("score", [0, -1, 31, 100, MIN_ABILITY_SCORE - 1, MAX_ABILITY_SCORE + 1])
+@pytest.mark.parametrize(
+    "score",
+    [0, -1, 31, 100, MIN_ABILITY_SCORE - 1, MAX_ABILITY_SCORE + 1],
+)
 def test_ability_modifier_rejects_out_of_range(score: int) -> None:
     with pytest.raises(AbilityScoreError):
         ability_modifier(score)
@@ -46,7 +46,13 @@ def test_ability_modifier_rejects_out_of_range(score: int) -> None:
 
 @pytest.mark.parametrize(
     ("modifier", "expected"),
-    [(0, "+0"), (3, "+3"), (-1, "-1"), (5, "+5"), (-5, "-5")],
+    [
+        (0, "+0"),
+        (3, "+3"),
+        (-1, "-1"),
+        (5, "+5"),
+        (-5, "-5"),
+    ],
 )
 def test_format_modifier_signed(modifier: int, expected: str) -> None:
     assert format_modifier(modifier) == expected
@@ -71,7 +77,10 @@ def test_proficiency_bonus_by_level(level: int, expected: int) -> None:
     assert proficiency_bonus(level) == expected
 
 
-@pytest.mark.parametrize("level", [0, -1, 21, MIN_LEVEL - 1, MAX_LEVEL + 1])
+@pytest.mark.parametrize(
+    "level",
+    [0, -1, 21, MIN_LEVEL - 1, MAX_LEVEL + 1],
+)
 def test_proficiency_bonus_rejects_out_of_range(level: int) -> None:
     with pytest.raises(LevelError):
         proficiency_bonus(level)
@@ -85,7 +94,7 @@ def test_proficiency_bonus_is_monotonic_non_decreasing() -> None:
 
 
 def test_ability_enum_codes() -> None:
-    assert [a.value for a in Ability] == ["str", "dex", "con", "int", "wis", "cha"]
+    assert [ability.value for ability in Ability] == ["str", "dex", "con", "int", "wis", "cha"]
     assert Ability("dex") is Ability.DEXTERITY
 
 

@@ -18,7 +18,7 @@ import pkgutil
 from collections.abc import Iterator
 from pathlib import Path
 
-import app.rules
+from app import rules
 
 # Layers the pure rules engine must never import (outer app packages) plus the
 # frameworks that only belong in those outer layers.
@@ -42,7 +42,7 @@ _FORBIDDEN_PREFIXES = (
     "httpx",
 )
 
-_RULES_DIR = Path(app.rules.__file__).parent
+_RULES_DIR = Path(rules.__file__).parent
 
 
 def _rules_module_files() -> list[Path]:
@@ -57,7 +57,7 @@ def _imported_names(source: str) -> Iterator[str]:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 yield alias.name
-        elif isinstance(node, ast.ImportFrom) and node.module is not None and node.level == 0:
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             yield node.module
 
 
@@ -71,24 +71,25 @@ def test_rules_modules_import_only_pure_layers() -> None:
         ]
         if bad:
             offenders[path.name] = bad
-    assert not offenders, "rules engine reached outside its boundary: " + repr(offenders)
+    assert not offenders, f"rules engine reached outside its boundary: {offenders!r}"
 
 
 def test_rules_package_only_contains_rules_modules() -> None:
     # No accidental sub-packages dragging in heavier dependencies.
-    discovered = sorted(info.name for info in pkgutil.iter_modules([str(_RULES_DIR)]))
+    modules = pkgutil.iter_modules([str(_RULES_DIR)])
+    discovered = sorted(module.name for module in modules)
     assert discovered == ["abilities", "attack", "conditions", "damage", "dice"], discovered
 
 
 def test_public_api_surface_is_importable_from_package() -> None:
     # The supported contract: consumers import from `app.rules`, not submodules.
-    for name in app.rules.__all__:
-        assert hasattr(app.rules, name), "app.rules.__all__ promises missing " + repr(name)
+    for name in rules.__all__:
+        assert hasattr(rules, name), f"app.rules.__all__ promises missing {name!r}"
 
 
 def test_public_api_matches_dice_reexports() -> None:
-    from app.rules import dice
+    dice = rules.dice
 
-    assert app.rules.parse_dice is dice.parse_dice
-    assert app.rules.roll_dice is dice.roll_dice
-    assert app.rules.D20_SIDES == dice.D20_SIDES
+    assert rules.parse_dice is dice.parse_dice
+    assert rules.roll_dice is dice.roll_dice
+    assert rules.D20_SIDES == dice.D20_SIDES

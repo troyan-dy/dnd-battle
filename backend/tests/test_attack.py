@@ -19,16 +19,7 @@ from app.rules import (
     select_d20,
 )
 
-
-class _ScriptedRandom(random.Random):
-    """A Random whose ``randint`` returns a fixed script of d20 results in order."""
-
-    def __init__(self, results: list[int]) -> None:
-        super().__init__()
-        self._results = list(results)
-
-    def randint(self, a: int, b: int) -> int:
-        return self._results.pop(0)
+from tests.support import ScriptedRandom
 
 
 def test_d20_count_is_two_only_with_advantage_or_disadvantage() -> None:
@@ -72,55 +63,55 @@ def test_attack_hits_rules(d20: int, total: int, armor_class: int, expected: boo
 
 
 def test_resolve_attack_normal_hit_adds_bonus() -> None:
-    rng = _ScriptedRandom([14])
-    result = resolve_attack(armor_class=15, attack_bonus=5, rng=rng)
-    assert result.rolls == (14,)
-    assert result.d20 == 14
-    assert result.total == 19
-    assert result.is_hit is True
-    assert result.is_critical_hit is False
-    assert result.is_critical_miss is False
-    assert result.advantage is Advantage.NORMAL
+    rng = ScriptedRandom([14])
+    outcome = resolve_attack(armor_class=15, attack_bonus=5, rng=rng)
+    assert outcome.rolls == (14,)
+    assert outcome.d20 == 14
+    assert outcome.total == 19
+    assert outcome.is_hit is True
+    assert outcome.is_critical_hit is False
+    assert outcome.is_critical_miss is False
+    assert outcome.advantage is Advantage.NORMAL
 
 
 def test_resolve_attack_miss_below_ac() -> None:
-    rng = _ScriptedRandom([8])
-    result = resolve_attack(armor_class=18, attack_bonus=2, rng=rng)
-    assert result.total == 10
-    assert result.is_hit is False
+    rng = ScriptedRandom([8])
+    outcome = resolve_attack(armor_class=18, attack_bonus=2, rng=rng)
+    assert outcome.total == 10
+    assert outcome.is_hit is False
 
 
 def test_resolve_attack_natural_twenty_is_critical_hit_regardless_of_ac() -> None:
-    rng = _ScriptedRandom([20])
-    result = resolve_attack(armor_class=50, attack_bonus=-20, rng=rng)
-    assert result.is_critical_hit is True
-    assert result.is_hit is True
+    rng = ScriptedRandom([20])
+    outcome = resolve_attack(armor_class=50, attack_bonus=-20, rng=rng)
+    assert outcome.is_critical_hit is True
+    assert outcome.is_hit is True
 
 
 def test_resolve_attack_natural_one_is_automatic_miss() -> None:
-    rng = _ScriptedRandom([1])
-    result = resolve_attack(armor_class=1, attack_bonus=20, rng=rng)
-    assert result.is_critical_miss is True
-    assert result.is_hit is False
+    rng = ScriptedRandom([1])
+    outcome = resolve_attack(armor_class=1, attack_bonus=20, rng=rng)
+    assert outcome.is_critical_miss is True
+    assert outcome.is_hit is False
 
 
 def test_resolve_attack_advantage_rolls_two_and_takes_higher() -> None:
-    rng = _ScriptedRandom([4, 17])
-    result = resolve_attack(armor_class=15, attack_bonus=0, advantage=Advantage.ADVANTAGE, rng=rng)
-    assert result.rolls == (4, 17)
-    assert result.d20 == 17
-    assert result.total == 17
-    assert result.is_hit is True
+    rng = ScriptedRandom([4, 17])
+    outcome = resolve_attack(armor_class=15, attack_bonus=0, advantage=Advantage.ADVANTAGE, rng=rng)
+    assert outcome.rolls == (4, 17)
+    assert outcome.d20 == 17
+    assert outcome.total == 17
+    assert outcome.is_hit is True
 
 
 def test_resolve_attack_disadvantage_rolls_two_and_takes_lower() -> None:
-    rng = _ScriptedRandom([4, 17])
-    result = resolve_attack(
+    rng = ScriptedRandom([4, 17])
+    outcome = resolve_attack(
         armor_class=15, attack_bonus=0, advantage=Advantage.DISADVANTAGE, rng=rng
     )
-    assert result.rolls == (4, 17)
-    assert result.d20 == 4
-    assert result.is_hit is False
+    assert outcome.rolls == (4, 17)
+    assert outcome.d20 == 4
+    assert outcome.is_hit is False
 
 
 @pytest.mark.parametrize("armor_class", [0, 51, -1])
@@ -136,6 +127,6 @@ def test_resolve_attack_rejects_out_of_range_attack_bonus(attack_bonus: int) -> 
 
 
 def test_resolve_attack_is_deterministic_for_a_given_seed() -> None:
-    a = resolve_attack(armor_class=15, attack_bonus=3, rng=random.Random(42))
-    b = resolve_attack(armor_class=15, attack_bonus=3, rng=random.Random(42))
-    assert a == b
+    first = resolve_attack(armor_class=15, attack_bonus=3, rng=random.Random(42))
+    second = resolve_attack(armor_class=15, attack_bonus=3, rng=random.Random(42))
+    assert first == second
