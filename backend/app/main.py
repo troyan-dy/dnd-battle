@@ -9,9 +9,13 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from app.api.invites import router as invites_router
-from app.api.rooms import router as rooms_router
+from app.api import characters, initiative, invites, maps, rooms, tokens
 from app.realtime import create_asgi_app
+
+
+async def health() -> JSONResponse:
+    """Return HTTP 200 with {\"status\": \"ok\"} to signal the server is up."""
+    return JSONResponse(content={"status": "ok"})
 
 
 def create_app() -> FastAPI:
@@ -31,16 +35,14 @@ def create_app() -> FastAPI:
     # Health probe — liveness/readiness check for infra / CI.
     # Not user-facing text; no i18n needed.
     # ---------------------------------------------------------------------------
-    @application.get("/health", tags=["infra"])
-    async def health() -> JSONResponse:
-        """Return HTTP 200 with {\"status\": \"ok\"} to signal the server is up."""
-        return JSONResponse(content={"status": "ok"})
+    application.add_api_route("/health", health, methods=["GET"], tags=["infra"])
 
     # ---------------------------------------------------------------------------
     # Domain routers.
     # ---------------------------------------------------------------------------
-    application.include_router(rooms_router)
-    application.include_router(invites_router)
+    # Room API slices first (all under `/rooms`), then invite resolution.
+    for api_module in (rooms, maps, characters, tokens, initiative, invites):
+        application.include_router(api_module.router)
 
     # ---------------------------------------------------------------------------
     # Future: include versioned API routers, add CORS middleware.

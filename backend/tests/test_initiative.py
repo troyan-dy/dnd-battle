@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 
 import pytest_asyncio
 from app.models import Base, Character, Room
-from app.schemas.room import InitiativeEntryInput
+from app.schemas.initiative import InitiativeEntryInput
 from app.services.initiative import (
     active_character_id,
     advance_turn,

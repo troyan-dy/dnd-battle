@@ -21,15 +21,16 @@ def storage_dir() -> Path:
     return path
 
 
-def save_map_image(data: bytes, content_type: str) -> str:
-    """Persist ``data`` and return the server-generated relative filename.
+def save_map_image(image: bytes, content_type: str) -> str:
+    """Persist ``image`` and return the server-generated relative filename.
 
     ``content_type`` must already be an allowlisted key of
     :data:`app.config.MAP_CONTENT_TYPE_EXTENSIONS`; the caller validates it.
     """
     extension = config.MAP_CONTENT_TYPE_EXTENSIONS[content_type]
-    filename = f"{uuid.uuid4().hex}{extension}"
-    (storage_dir() / filename).write_bytes(data)
+    stem = uuid.uuid4().hex
+    filename = f"{stem}{extension}"
+    (storage_dir() / filename).write_bytes(image)
     return filename
 
 

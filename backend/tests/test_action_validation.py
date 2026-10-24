@@ -24,9 +24,9 @@ from app.models import (
     Room,
     Token,
 )
-from app.schemas.action import (
-    ActionIntent,
-    AttackIntentPayload,
+from app.schemas.action import ActionIntent
+from app.schemas.attack import AttackIntentPayload
+from app.schemas.payloads import (
     DamagePayload,
     EndTurnPayload,
     HealPayload,
@@ -34,13 +34,10 @@ from app.schemas.action import (
     MovePayload,
     SetVisibilityPayload,
 )
-from app.services.actions import (
-    IntentValidationError,
-    apply_action,
-    resolve_attack,
-    validate_intent,
-)
+from app.services.actions import apply_action
+from app.services.attacks import resolve_attack
 from app.services.board import build_board_state
+from app.services.intents import IntentValidationError, validate_intent
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 

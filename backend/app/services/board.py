@@ -22,7 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.character import Character
 from app.models.token import Token
-from app.schemas.room import BoardState, CharacterResponse, TokenResponse
+from app.schemas.board import BoardState
+from app.schemas.character import CharacterResponse
+from app.schemas.token import TokenResponse
 from app.services.initiative import build_initiative_state
 
 
@@ -44,26 +46,32 @@ async def build_board_state(
     view (``include_hidden=True``, the default) receives everything, with each
     token's ``hidden`` flag, so the host can render hidden pieces distinctly.
     """
-    tokens = list(
-        (await session.execute(select(Token).where(Token.room_id == room_id))).scalars().all()
-    )
-    characters = list(
-        (await session.execute(select(Character).where(Character.room_id == room_id)))
-        .scalars()
-        .all()
-    )
+    tokens = await _room_rows(session, Token, room_id)
+    characters = await _room_rows(session, Character, room_id)
     initiative = await build_initiative_state(session, room_id)
 
     if not include_hidden:
-        tokens = [t for t in tokens if not t.hidden]
+        tokens = [token for token in tokens if not token.hidden]
         # Only keep characters a visible token binds to, so a hidden monster's
         # stat block is never delivered to a player.
-        visible_character_ids = {t.character_id for t in tokens}
-        characters = [c for c in characters if c.id in visible_character_ids]
+        visible_character_ids = {token.character_id for token in tokens}
+        characters = [
+            character for character in characters if character.id in visible_character_ids
+        ]
 
     return BoardState(
         room_id=room_id,
-        tokens=[TokenResponse.model_validate(t) for t in tokens],
-        characters=[CharacterResponse.model_validate(c) for c in characters],
+        tokens=[TokenResponse.model_validate(token) for token in tokens],
+        characters=[CharacterResponse.model_validate(character) for character in characters],
         initiative=initiative,
     )
+
+
+async def _room_rows[RowT: (Token, Character)](
+    session: AsyncSession,
+    model: type[RowT],
+    room_id: uuid.UUID,
+) -> list[RowT]:
+    """Every persisted ``model`` row (tokens or characters) belonging to ``room_id``."""
+    in_room = select(model).where(model.room_id == room_id)
+    return list(await session.scalars(in_room))

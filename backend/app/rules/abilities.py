@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 # D&D 2024 ability-score range (1 = drained to nothing, 30 = a deity's might).
-# Matches the AbilityScores Pydantic bounds in app/schemas/room.py.
+# Matches the AbilityScores Pydantic bounds in app/schemas/character.py.
 MIN_ABILITY_SCORE = 1
 MAX_ABILITY_SCORE = 30
 

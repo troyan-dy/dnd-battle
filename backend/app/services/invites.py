@@ -10,6 +10,9 @@ enforces exactly the same rules as ``GET /invites/{token}``:
   enumeration oracle — callers surface a single generic failure);
 * never mutate the link (no ``used_at`` write) so reloads can always re-resolve
   (reconnect-safe, CLAUDE.md rule 2).
+
+Minting a link (:func:`mint_invite`) lives here too, so the hashing scheme that
+resolution relies on is defined in one place.
 """
 
 from __future__ import annotations
@@ -21,10 +24,12 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import config
 from app.models.enums import ParticipantRole
 from app.models.invite_link import InviteLink
 from app.models.participant import Participant
-from app.security.tokens import hash_token
+from app.schemas.invite import InviteLinkResponse
+from app.security.tokens import generate_token, hash_token
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,11 +72,10 @@ async def resolve_active_invite(
     """
     if not token:
         return None
-    moment = now if now is not None else dt.datetime.now(dt.UTC)
+    moment = dt.datetime.now(dt.UTC) if now is None else now
 
-    link = (
-        await session.execute(select(InviteLink).where(InviteLink.token_hash == hash_token(token)))
-    ).scalar_one_or_none()
+    by_hash = select(InviteLink).where(InviteLink.token_hash == hash_token(token))
+    link = (await session.execute(by_hash)).scalar_one_or_none()
     if link is None or not is_invite_active(link, moment):
         return None
 
@@ -85,3 +89,30 @@ async def resolve_active_invite(
         role=participant.role,
         character_id=participant.character_id,
     )
+
+
+def build_invite_url(token: str) -> str:
+    """Return the shareable join URL for a plaintext invite token."""
+    return f"{config.APP_BASE_URL}/join/{token}"
+
+
+def mint_invite(
+    session: AsyncSession,
+    *,
+    room_id: uuid.UUID,
+    participant_id: uuid.UUID,
+) -> InviteLinkResponse:
+    """Stage a fresh invite link for the participant; return its plaintext ONCE.
+
+    Mints an unguessable token and persists only its SHA-256 hash on an
+    :class:`InviteLink` bound to (room, participant); the caller commits.
+    """
+    token = generate_token()
+    session.add(
+        InviteLink(
+            room_id=room_id,
+            participant_id=participant_id,
+            token_hash=hash_token(token),
+        ),
+    )
+    return InviteLinkResponse(token=token, url=build_invite_url(token))

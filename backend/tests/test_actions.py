@@ -11,13 +11,10 @@ import uuid
 import pytest
 from app.rules.attack import Advantage
 from app.rules.damage import DamageType, Defense
-from app.schemas.action import (
-    ACTION_PROTOCOL_VERSION,
-    Action,
-    ActionIntent,
+from app.schemas.action import ACTION_PROTOCOL_VERSION, Action, ActionIntent
+from app.schemas.attack import AttackIntentPayload, AttackResultPayload
+from app.schemas.payloads import (
     ActionType,
-    AttackIntentPayload,
-    AttackResultPayload,
     DamagePayload,
     EndTurnPayload,
     HealPayload,
@@ -25,7 +22,7 @@ from app.schemas.action import (
     MovePayload,
     SetVisibilityPayload,
 )
-from app.schemas.room import GRID_COORD_MAX
+from app.schemas.token import GRID_COORD_MAX
 from pydantic import ValidationError
 
 

@@ -21,17 +21,14 @@ Three pure-ish operations (all read/mutate rows; the caller commits):
 from __future__ import annotations
 
 import uuid
+from operator import attrgetter
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.initiative import InitiativeEntry
 from app.models.room import Room
-from app.schemas.room import (
-    InitiativeEntryInput,
-    InitiativeEntryResponse,
-    InitiativeState,
-)
+from app.schemas.initiative import InitiativeEntryInput, InitiativeEntryResponse, InitiativeState
 
 
 async def set_initiative(
@@ -47,10 +44,11 @@ async def set_initiative(
     resets the active turn to the first seat (``None`` when ``entries`` is empty)
     with the round counter back to 1. The caller commits.
     """
-    await session.execute(delete(InitiativeEntry).where(InitiativeEntry.room_id == room.id))
+    room_entries = delete(InitiativeEntry).where(InitiativeEntry.room_id == room.id)
+    await session.execute(room_entries)
 
     # Sort by initiative descending; Python's sort is stable so ties keep input order.
-    ordered = sorted(entries, key=lambda e: e.initiative, reverse=True)
+    ordered = sorted(entries, key=attrgetter("initiative"), reverse=True)
     for index, entry in enumerate(ordered):
         session.add(
             InitiativeEntry(
@@ -90,21 +88,15 @@ async def advance_turn(session: AsyncSession, *, room: Room) -> None:
 async def build_initiative_state(session: AsyncSession, room_id: uuid.UUID) -> InitiativeState:
     """Assemble the full :class:`InitiativeState` snapshot for ``room_id``."""
     room = await session.get(Room, room_id)
-    entries = (
-        (
-            await session.execute(
-                select(InitiativeEntry)
-                .where(InitiativeEntry.room_id == room_id)
-                .order_by(InitiativeEntry.order_index)
-            )
-        )
-        .scalars()
-        .all()
+    entries = await session.scalars(
+        select(InitiativeEntry)
+        .where(InitiativeEntry.room_id == room_id)
+        .order_by(InitiativeEntry.order_index),
     )
     return InitiativeState(
-        active_index=room.initiative_active_index if room is not None else None,
-        round=room.initiative_round if room is not None else 1,
-        entries=[InitiativeEntryResponse.model_validate(e) for e in entries],
+        active_index=None if room is None else room.initiative_active_index,
+        round=1 if room is None else room.initiative_round,
+        entries=[InitiativeEntryResponse.model_validate(entry) for entry in entries],
     )
 
 
@@ -125,17 +117,11 @@ async def active_character_id(session: AsyncSession, room: Room) -> uuid.UUID | 
             )
         )
     ).scalar_one_or_none()
-    return entry.character_id if entry is not None else None
+    return None if entry is None else entry.character_id
 
 
 async def _entry_count(session: AsyncSession, room_id: uuid.UUID) -> int:
-    entries = (
-        (
-            await session.execute(
-                select(InitiativeEntry.id).where(InitiativeEntry.room_id == room_id)
-            )
-        )
-        .scalars()
-        .all()
+    entry_ids = await session.scalars(
+        select(InitiativeEntry.id).where(InitiativeEntry.room_id == room_id),
     )
-    return len(entries)
+    return len(entry_ids.all())

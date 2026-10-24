@@ -1,4 +1,4 @@
-// TypeScript mirrors of the backend Pydantic contracts (app/schemas/room.py).
+// TypeScript mirrors of the backend Pydantic contracts (app/schemas/*.py).
 // Keep these in sync with the server — Pydantic is the source of truth.
 
 export type ParticipantRole = 'host' | 'player';
@@ -170,7 +170,7 @@ export interface InitiativeState {
 
 /**
  * The FULL current board snapshot the server pushes to a client when it (re)joins
- * a room (Socket.IO `boardState` event). Mirrors `app.schemas.room.BoardState`.
+ * a room (Socket.IO `boardState` event). Mirrors `app.schemas.board.BoardState`.
  * A complete, idempotent read — reloading a link yields the same snapshot.
  */
 export interface BoardState {
