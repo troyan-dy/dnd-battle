@@ -20,7 +20,13 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     with op.batch_alter_table("characters", schema=None) as batch_op:
-        batch_op.add_column(sa.Column("portrait_url", sa.String(length=2048), nullable=True))
+        batch_op.add_column(
+            sa.Column(
+                "portrait_url",
+                sa.String(length=2048),
+                nullable=True,
+            ),
+        )
 
 
 def downgrade() -> None:

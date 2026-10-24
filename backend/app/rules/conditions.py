@@ -33,9 +33,10 @@ Wiring these effects into the Phase-5 attack/damage actions is the separate
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
+from types import MappingProxyType
 
 from app.rules.attack import Advantage
 
@@ -90,178 +91,189 @@ class ConditionEffect:
     effects: tuple[str, ...] = field(default_factory=tuple)
 
 
-CONDITION_EFFECTS: dict[Condition, ConditionEffect] = {
-    Condition.BLINDED: ConditionEffect(
-        condition=Condition.BLINDED,
-        attacks_against_have_advantage=True,
-        own_attacks_have_disadvantage=True,
-        effects=(
-            "Can't see and automatically fails any ability check that requires sight.",
-            "Attack rolls against the creature have Advantage.",
-            "The creature's attack rolls have Disadvantage.",
+# Rules-text bullets shared verbatim by several conditions.
+_ATTACKS_AGAINST_HAVE_ADVANTAGE = "Attack rolls against the creature have Advantage."
+_AUTO_FAILS_STR_DEX_SAVES = "The creature automatically fails Strength and Dexterity saving throws."
+
+# Read-only: the 2024 rules table is a constant, never mutated at runtime.
+CONDITION_EFFECTS: Mapping[Condition, ConditionEffect] = MappingProxyType(
+    {
+        Condition.BLINDED: ConditionEffect(
+            condition=Condition.BLINDED,
+            attacks_against_have_advantage=True,
+            own_attacks_have_disadvantage=True,
+            effects=(
+                "Can't see and automatically fails any ability check that requires sight.",
+                _ATTACKS_AGAINST_HAVE_ADVANTAGE,
+                "The creature's attack rolls have Disadvantage.",
+            ),
         ),
-    ),
-    Condition.CHARMED: ConditionEffect(
-        condition=Condition.CHARMED,
-        effects=(
-            "Can't attack the charmer or target the charmer with harmful abilities "
-            "or magical effects.",
-            "The charmer has Advantage on any ability check to interact socially with "
-            "the creature.",
+        Condition.CHARMED: ConditionEffect(
+            condition=Condition.CHARMED,
+            effects=(
+                "Can't attack the charmer or target the charmer with harmful abilities "
+                "or magical effects.",
+                "The charmer has Advantage on any ability check to interact socially with "
+                "the creature.",
+            ),
         ),
-    ),
-    Condition.DEAFENED: ConditionEffect(
-        condition=Condition.DEAFENED,
-        effects=("Can't hear and automatically fails any ability check that requires hearing.",),
-    ),
-    Condition.EXHAUSTION: ConditionEffect(
-        condition=Condition.EXHAUSTION,
-        effects=(
-            "Exhaustion is measured in six levels and its effects are cumulative.",
-            "The creature takes a penalty to all D20 Tests equal to 2 times its Exhaustion level.",
-            "The creature's Speed is reduced by a number of feet equal to 5 times its "
-            "Exhaustion level.",
-            "Level 6 Exhaustion is fatal.",
+        Condition.DEAFENED: ConditionEffect(
+            condition=Condition.DEAFENED,
+            effects=(
+                "Can't hear and automatically fails any ability check that requires hearing.",
+            ),
         ),
-    ),
-    Condition.FRIGHTENED: ConditionEffect(
-        condition=Condition.FRIGHTENED,
-        own_attacks_have_disadvantage=True,
-        ability_checks_have_disadvantage=True,
-        effects=(
-            "While the source of its fear is within line of sight, the creature has "
-            "Disadvantage on ability checks and attack rolls.",
-            "The creature can't willingly move closer to the source of its fear.",
+        Condition.EXHAUSTION: ConditionEffect(
+            condition=Condition.EXHAUSTION,
+            effects=(
+                "Exhaustion is measured in six levels and its effects are cumulative.",
+                "The creature takes a penalty to all D20 Tests equal to 2 times its "
+                "Exhaustion level.",
+                "The creature's Speed is reduced by a number of feet equal to 5 times its "
+                "Exhaustion level.",
+                "Level 6 Exhaustion is fatal.",
+            ),
         ),
-    ),
-    Condition.GRAPPLED: ConditionEffect(
-        condition=Condition.GRAPPLED,
-        speed_zero=True,
-        effects=(
-            "The creature's Speed is 0 and can't increase.",
-            "The creature has Disadvantage on attack rolls against any target other "
-            "than the grappler.",
-            "The condition ends if the grappler is Incapacitated or if the creature is "
-            "moved outside the grappler's reach.",
+        Condition.FRIGHTENED: ConditionEffect(
+            condition=Condition.FRIGHTENED,
+            own_attacks_have_disadvantage=True,
+            ability_checks_have_disadvantage=True,
+            effects=(
+                "While the source of its fear is within line of sight, the creature has "
+                "Disadvantage on ability checks and attack rolls.",
+                "The creature can't willingly move closer to the source of its fear.",
+            ),
         ),
-    ),
-    Condition.INCAPACITATED: ConditionEffect(
-        condition=Condition.INCAPACITATED,
-        incapacitated=True,
-        effects=(
-            "The creature can't take any action, Bonus Action, or Reaction.",
-            "The creature can't concentrate and can't speak.",
-            "If Incapacitated when it rolls Initiative, the creature has Disadvantage on the roll.",
+        Condition.GRAPPLED: ConditionEffect(
+            condition=Condition.GRAPPLED,
+            speed_zero=True,
+            effects=(
+                "The creature's Speed is 0 and can't increase.",
+                "The creature has Disadvantage on attack rolls against any target other "
+                "than the grappler.",
+                "The condition ends if the grappler is Incapacitated or if the creature is "
+                "moved outside the grappler's reach.",
+            ),
         ),
-    ),
-    Condition.INVISIBLE: ConditionEffect(
-        condition=Condition.INVISIBLE,
-        attacks_against_have_disadvantage=True,
-        own_attacks_have_advantage=True,
-        effects=(
-            "The creature isn't affected by any effect that requires its target to be "
-            "seen, unless the effect's creator can somehow see it.",
-            "The creature is Heavily Obscured for the purpose of hiding.",
-            "Attack rolls against the creature have Disadvantage.",
-            "The creature's attack rolls have Advantage.",
+        Condition.INCAPACITATED: ConditionEffect(
+            condition=Condition.INCAPACITATED,
+            incapacitated=True,
+            effects=(
+                "The creature can't take any action, Bonus Action, or Reaction.",
+                "The creature can't concentrate and can't speak.",
+                "If Incapacitated when it rolls Initiative, the creature has "
+                "Disadvantage on the roll.",
+            ),
         ),
-    ),
-    Condition.PARALYZED: ConditionEffect(
-        condition=Condition.PARALYZED,
-        incapacitated=True,
-        speed_zero=True,
-        attacks_against_have_advantage=True,
-        auto_fails_strength_saves=True,
-        auto_fails_dexterity_saves=True,
-        melee_attacks_against_are_critical=True,
-        effects=(
-            "The creature has the Incapacitated condition and can't move or speak.",
-            "The creature automatically fails Strength and Dexterity saving throws.",
-            "Attack rolls against the creature have Advantage.",
-            "Any attack roll that hits the creature is a Critical Hit if the attacker "
-            "is within 5 feet.",
+        Condition.INVISIBLE: ConditionEffect(
+            condition=Condition.INVISIBLE,
+            attacks_against_have_disadvantage=True,
+            own_attacks_have_advantage=True,
+            effects=(
+                "The creature isn't affected by any effect that requires its target to be "
+                "seen, unless the effect's creator can somehow see it.",
+                "The creature is Heavily Obscured for the purpose of hiding.",
+                "Attack rolls against the creature have Disadvantage.",
+                "The creature's attack rolls have Advantage.",
+            ),
         ),
-    ),
-    Condition.PETRIFIED: ConditionEffect(
-        condition=Condition.PETRIFIED,
-        incapacitated=True,
-        speed_zero=True,
-        attacks_against_have_advantage=True,
-        auto_fails_strength_saves=True,
-        auto_fails_dexterity_saves=True,
-        effects=(
-            "The creature is transformed, along with any nonmagical objects it is "
-            "wearing and carrying, into a solid inanimate substance; its weight "
-            "increases by a factor of ten and it stops aging.",
-            "The creature has the Incapacitated condition and can't move or speak.",
-            "Attack rolls against the creature have Advantage.",
-            "The creature automatically fails Strength and Dexterity saving throws.",
-            "The creature has Resistance to all damage.",
-            "The creature has Immunity to the Poisoned condition.",
+        Condition.PARALYZED: ConditionEffect(
+            condition=Condition.PARALYZED,
+            incapacitated=True,
+            speed_zero=True,
+            attacks_against_have_advantage=True,
+            auto_fails_strength_saves=True,
+            auto_fails_dexterity_saves=True,
+            melee_attacks_against_are_critical=True,
+            effects=(
+                "The creature has the Incapacitated condition and can't move or speak.",
+                _AUTO_FAILS_STR_DEX_SAVES,
+                _ATTACKS_AGAINST_HAVE_ADVANTAGE,
+                "Any attack roll that hits the creature is a Critical Hit if the attacker "
+                "is within 5 feet.",
+            ),
         ),
-    ),
-    Condition.POISONED: ConditionEffect(
-        condition=Condition.POISONED,
-        own_attacks_have_disadvantage=True,
-        ability_checks_have_disadvantage=True,
-        effects=("The creature has Disadvantage on attack rolls and ability checks.",),
-    ),
-    Condition.PRONE: ConditionEffect(
-        condition=Condition.PRONE,
-        own_attacks_have_disadvantage=True,
-        effects=(
-            "The creature's only movement options are to crawl or to spend movement to "
-            "stand up, ending the condition.",
-            "The creature has Disadvantage on attack rolls.",
-            "An attack roll against the creature has Advantage if the attacker is "
-            "within 5 feet; otherwise, the attack roll has Disadvantage.",
+        Condition.PETRIFIED: ConditionEffect(
+            condition=Condition.PETRIFIED,
+            incapacitated=True,
+            speed_zero=True,
+            attacks_against_have_advantage=True,
+            auto_fails_strength_saves=True,
+            auto_fails_dexterity_saves=True,
+            effects=(
+                "The creature is transformed, along with any nonmagical objects it is "
+                "wearing and carrying, into a solid inanimate substance; its weight "
+                "increases by a factor of ten and it stops aging.",
+                "The creature has the Incapacitated condition and can't move or speak.",
+                _ATTACKS_AGAINST_HAVE_ADVANTAGE,
+                _AUTO_FAILS_STR_DEX_SAVES,
+                "The creature has Resistance to all damage.",
+                "The creature has Immunity to the Poisoned condition.",
+            ),
         ),
-    ),
-    Condition.RESTRAINED: ConditionEffect(
-        condition=Condition.RESTRAINED,
-        speed_zero=True,
-        attacks_against_have_advantage=True,
-        own_attacks_have_disadvantage=True,
-        effects=(
-            "The creature's Speed is 0 and can't increase.",
-            "Attack rolls against the creature have Advantage, and the creature's "
-            "attack rolls have Disadvantage.",
-            "The creature has Disadvantage on Dexterity saving throws.",
+        Condition.POISONED: ConditionEffect(
+            condition=Condition.POISONED,
+            own_attacks_have_disadvantage=True,
+            ability_checks_have_disadvantage=True,
+            effects=("The creature has Disadvantage on attack rolls and ability checks.",),
         ),
-    ),
-    Condition.STUNNED: ConditionEffect(
-        condition=Condition.STUNNED,
-        incapacitated=True,
-        speed_zero=True,
-        attacks_against_have_advantage=True,
-        auto_fails_strength_saves=True,
-        auto_fails_dexterity_saves=True,
-        effects=(
-            "The creature has the Incapacitated condition and can't move; it can speak "
-            "only falteringly.",
-            "The creature automatically fails Strength and Dexterity saving throws.",
-            "Attack rolls against the creature have Advantage.",
+        Condition.PRONE: ConditionEffect(
+            condition=Condition.PRONE,
+            own_attacks_have_disadvantage=True,
+            effects=(
+                "The creature's only movement options are to crawl or to spend movement to "
+                "stand up, ending the condition.",
+                "The creature has Disadvantage on attack rolls.",
+                "An attack roll against the creature has Advantage if the attacker is "
+                "within 5 feet; otherwise, the attack roll has Disadvantage.",
+            ),
         ),
-    ),
-    Condition.UNCONSCIOUS: ConditionEffect(
-        condition=Condition.UNCONSCIOUS,
-        incapacitated=True,
-        speed_zero=True,
-        attacks_against_have_advantage=True,
-        auto_fails_strength_saves=True,
-        auto_fails_dexterity_saves=True,
-        melee_attacks_against_are_critical=True,
-        effects=(
-            "The creature has the Incapacitated condition, can't move or speak, and is "
-            "unaware of its surroundings.",
-            "The creature drops whatever it is holding and falls Prone.",
-            "The creature automatically fails Strength and Dexterity saving throws.",
-            "Attack rolls against the creature have Advantage.",
-            "Any attack roll that hits the creature is a Critical Hit if the attacker "
-            "is within 5 feet.",
+        Condition.RESTRAINED: ConditionEffect(
+            condition=Condition.RESTRAINED,
+            speed_zero=True,
+            attacks_against_have_advantage=True,
+            own_attacks_have_disadvantage=True,
+            effects=(
+                "The creature's Speed is 0 and can't increase.",
+                "Attack rolls against the creature have Advantage, and the creature's "
+                "attack rolls have Disadvantage.",
+                "The creature has Disadvantage on Dexterity saving throws.",
+            ),
         ),
-    ),
-}
+        Condition.STUNNED: ConditionEffect(
+            condition=Condition.STUNNED,
+            incapacitated=True,
+            speed_zero=True,
+            attacks_against_have_advantage=True,
+            auto_fails_strength_saves=True,
+            auto_fails_dexterity_saves=True,
+            effects=(
+                "The creature has the Incapacitated condition and can't move; it can speak "
+                "only falteringly.",
+                _AUTO_FAILS_STR_DEX_SAVES,
+                _ATTACKS_AGAINST_HAVE_ADVANTAGE,
+            ),
+        ),
+        Condition.UNCONSCIOUS: ConditionEffect(
+            condition=Condition.UNCONSCIOUS,
+            incapacitated=True,
+            speed_zero=True,
+            attacks_against_have_advantage=True,
+            auto_fails_strength_saves=True,
+            auto_fails_dexterity_saves=True,
+            melee_attacks_against_are_critical=True,
+            effects=(
+                "The creature has the Incapacitated condition, can't move or speak, and is "
+                "unaware of its surroundings.",
+                "The creature drops whatever it is holding and falls Prone.",
+                _AUTO_FAILS_STR_DEX_SAVES,
+                _ATTACKS_AGAINST_HAVE_ADVANTAGE,
+                "Any attack roll that hits the creature is a Critical Hit if the attacker "
+                "is within 5 feet.",
+            ),
+        ),
+    }
+)
 
 
 def condition_effect(condition: Condition) -> ConditionEffect:
@@ -286,10 +298,10 @@ def incoming_attack_advantage(conditions: Iterable[Condition]) -> Advantage:
     Combines every condition's effect on attacks against the creature; mixed
     Advantage and Disadvantage cancel to :attr:`Advantage.NORMAL`.
     """
-    effects = [CONDITION_EFFECTS[c] for c in conditions]
+    effects = [CONDITION_EFFECTS[condition] for condition in conditions]
     return _combine_advantage(
-        any(e.attacks_against_have_advantage for e in effects),
-        any(e.attacks_against_have_disadvantage for e in effects),
+        any(effect.attacks_against_have_advantage for effect in effects),
+        any(effect.attacks_against_have_disadvantage for effect in effects),
     )
 
 
@@ -299,10 +311,10 @@ def outgoing_attack_advantage(conditions: Iterable[Condition]) -> Advantage:
     Combines every condition's effect on the creature's own attacks; mixed
     Advantage and Disadvantage cancel to :attr:`Advantage.NORMAL`.
     """
-    effects = [CONDITION_EFFECTS[c] for c in conditions]
+    effects = [CONDITION_EFFECTS[condition] for condition in conditions]
     return _combine_advantage(
-        any(e.own_attacks_have_advantage for e in effects),
-        any(e.own_attacks_have_disadvantage for e in effects),
+        any(effect.own_attacks_have_advantage for effect in effects),
+        any(effect.own_attacks_have_disadvantage for effect in effects),
     )
 
 
@@ -318,12 +330,12 @@ def attack_advantage(
     combined with any Disadvantage yields a normal roll. This is what an attack's
     resolution feeds to :func:`app.rules.attack.resolve_attack`.
     """
-    attacker = [CONDITION_EFFECTS[c] for c in attacker_conditions]
-    target = [CONDITION_EFFECTS[c] for c in target_conditions]
-    has_advantage = any(e.own_attacks_have_advantage for e in attacker) or any(
-        e.attacks_against_have_advantage for e in target
+    attacker = [CONDITION_EFFECTS[condition] for condition in attacker_conditions]
+    target = [CONDITION_EFFECTS[condition] for condition in target_conditions]
+    has_advantage = any(effect.own_attacks_have_advantage for effect in attacker) or any(
+        effect.attacks_against_have_advantage for effect in target
     )
-    has_disadvantage = any(e.own_attacks_have_disadvantage for e in attacker) or any(
-        e.attacks_against_have_disadvantage for e in target
+    has_disadvantage = any(effect.own_attacks_have_disadvantage for effect in attacker) or any(
+        effect.attacks_against_have_disadvantage for effect in target
     )
     return _combine_advantage(has_advantage, has_disadvantage)

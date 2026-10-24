@@ -80,7 +80,7 @@ class AttackRoll:
 
 def d20_count(advantage: Advantage) -> int:
     """How many d20s a roll with ``advantage`` rolls: 2 for adv/disadv, else 1."""
-    return 2 if advantage is not Advantage.NORMAL else 1
+    return 1 if advantage is Advantage.NORMAL else 2
 
 
 def select_d20(rolls: tuple[int, ...], advantage: Advantage) -> int:
@@ -128,7 +128,8 @@ def resolve_attack(
     if not MIN_ATTACK_BONUS <= attack_bonus <= MAX_ATTACK_BONUS:
         raise AttackBonusError(f"attack bonus must be {MIN_ATTACK_BONUS}..{MAX_ATTACK_BONUS}")
 
-    rolls = tuple(roll_d20(rng=rng) for _ in range(d20_count(advantage)))
+    dice_count = d20_count(advantage)
+    rolls = tuple(roll_d20(rng=rng) for _ in range(dice_count))
     d20 = select_d20(rolls, advantage)
     total = d20 + attack_bonus
     return AttackRoll(

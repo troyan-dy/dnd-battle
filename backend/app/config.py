@@ -8,6 +8,9 @@ Postgres; production/dev set ``DATABASE_URL`` to the asyncpg Postgres URL
 """
 
 import os
+from collections.abc import Mapping
+from types import MappingProxyType
+from typing import Final
 
 # Async driver URL. Postgres in real deployments; sqlite+aiosqlite as a
 # zero-infra default for unit tests and local schema tooling.
@@ -31,17 +34,23 @@ MAP_STORAGE_DIR: str = os.getenv("MAP_STORAGE_DIR", "./var/map_uploads")
 
 # Hard cap on a single map upload (bytes). Default 10 MiB. The upload handler
 # reads at most this many bytes + 1 so an oversized body never buffers unbounded.
-MAX_MAP_UPLOAD_BYTES: int = int(os.getenv("MAX_MAP_UPLOAD_BYTES", str(10 * 1024 * 1024)))
+_MEBIBYTE: Final = 1024 * 1024
+_DEFAULT_MAX_MAP_UPLOAD_BYTES: Final = 10 * _MEBIBYTE
+MAX_MAP_UPLOAD_BYTES: int = int(
+    os.getenv("MAX_MAP_UPLOAD_BYTES", str(_DEFAULT_MAX_MAP_UPLOAD_BYTES)),
+)
 
 # Allowlisted image MIME types for map uploads. Anything else is rejected (415)
 # before touching disk; the stored file extension is derived from this mapping,
-# never from the client-supplied filename.
-MAP_CONTENT_TYPE_EXTENSIONS: dict[str, str] = {
-    "image/png": ".png",
-    "image/jpeg": ".jpg",
-    "image/webp": ".webp",
-    "image/gif": ".gif",
-}
+# never from the client-supplied filename. Read-only so no caller can widen it.
+MAP_CONTENT_TYPE_EXTENSIONS: Mapping[str, str] = MappingProxyType(
+    {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/webp": ".webp",
+        "image/gif": ".gif",
+    }
+)
 
 
 def _split_origins(raw: str) -> list[str]:
