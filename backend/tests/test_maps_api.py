@@ -8,21 +8,15 @@ touches Postgres or the real filesystem. Drives the ASGI app via httpx.
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator
 from pathlib import Path
 
 import httpx
 import pytest
-import pytest_asyncio
 from app import config
-from app.db.session import get_session
-from app.main import create_app
-from app.models import Base, Room
+from app.models import Room
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
 
-ClientFactory = tuple[httpx.AsyncClient, async_sessionmaker[AsyncSession]]
+from tests.support import ClientFactory
 
 # A 1x1 transparent PNG (smallest valid-ish payload for upload tests).
 PNG_BYTES = (
@@ -32,31 +26,10 @@ PNG_BYTES = (
 )
 
 
-@pytest_asyncio.fixture
-async def client_and_factory(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> AsyncIterator[ClientFactory]:
-    """Yield an ASGI client on a fresh in-memory DB with a temp map storage dir."""
+@pytest.fixture(autouse=True)
+def _map_storage_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point map storage at a per-test temp dir (the shared client uses it)."""
     monkeypatch.setattr(config, "MAP_STORAGE_DIR", str(tmp_path / "maps"))
-
-    engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(bind=engine, expire_on_commit=False)
-
-    async def override_get_session() -> AsyncIterator[AsyncSession]:
-        async with factory() as session:
-            yield session
-
-    app = create_app()
-    app.dependency_overrides[get_session] = override_get_session
-
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client, factory
-
-    await engine.dispose()
 
 
 async def _create_room(client: httpx.AsyncClient, name: str = "Room") -> str:
@@ -84,11 +57,8 @@ async def test_upload_then_serve_map(client_and_factory: ClientFactory) -> None:
 
     # Persistence: room carries the server-generated filename + content type.
     async with factory() as session:
-        room = (
-            (await session.execute(select(Room).where(Room.id == uuid.UUID(room_id))))
-            .scalars()
-            .one()
-        )
+        by_id = select(Room).where(Room.id == uuid.UUID(room_id))
+        room = (await session.scalars(by_id)).one()
         assert room.map_image_path is not None
         # Server-generated name, NOT the client filename (no traversal surface).
         assert room.map_image_path != "battlemap.png"
@@ -118,11 +88,8 @@ async def test_upload_rejects_non_image(client_and_factory: ClientFactory) -> No
     assert resp.status_code == 415
 
     async with factory() as session:
-        room = (
-            (await session.execute(select(Room).where(Room.id == uuid.UUID(room_id))))
-            .scalars()
-            .one()
-        )
+        by_id = select(Room).where(Room.id == uuid.UUID(room_id))
+        room = (await session.scalars(by_id)).one()
         assert room.map_image_path is None
 
 
@@ -174,11 +141,8 @@ async def test_reupload_replaces_pointer(client_and_factory: ClientFactory) -> N
     )
     assert first.status_code == 201
     async with factory() as session:
-        room = (
-            (await session.execute(select(Room).where(Room.id == uuid.UUID(room_id))))
-            .scalars()
-            .one()
-        )
+        by_id = select(Room).where(Room.id == uuid.UUID(room_id))
+        room = (await session.scalars(by_id)).one()
         first_name = room.map_image_path
 
     second = await client.post(
@@ -187,11 +151,8 @@ async def test_reupload_replaces_pointer(client_and_factory: ClientFactory) -> N
     )
     assert second.status_code == 201
     async with factory() as session:
-        room = (
-            (await session.execute(select(Room).where(Room.id == uuid.UUID(room_id))))
-            .scalars()
-            .one()
-        )
+        by_id = select(Room).where(Room.id == uuid.UUID(room_id))
+        room = (await session.scalars(by_id)).one()
         assert room.map_image_path != first_name
         assert room.map_image_path is not None
         assert room.map_image_path.endswith(".gif")

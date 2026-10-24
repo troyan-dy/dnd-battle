@@ -8,28 +8,16 @@ advancing wraps and bumps the round; the built snapshot is reconnect-safe.
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator
 
-import pytest_asyncio
-from app.models import Base, Character, Room
-from app.schemas.room import InitiativeEntryInput
+from app.models import Character, Room
+from app.schemas.initiative import InitiativeEntryInput, InitiativeState
 from app.services.initiative import (
     active_character_id,
     advance_turn,
     build_initiative_state,
     set_initiative,
 )
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
-
-
-@pytest_asyncio.fixture
-async def factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield async_sessionmaker(bind=engine, expire_on_commit=False)
-    await engine.dispose()
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
 async def _make_room(
@@ -45,6 +33,49 @@ async def _make_room(
         session.add_all([char_a, char_b])
         await session.commit()
         return room.id, char_a.id, char_b.id
+
+
+async def _load_room(session: AsyncSession, room_id: uuid.UUID) -> Room:
+    room = await session.get(Room, room_id)
+    assert room is not None
+    return room
+
+
+async def _seat_two(
+    session: AsyncSession,
+    room_id: uuid.UUID,
+    char_a: uuid.UUID,
+    char_b: uuid.UUID,
+) -> Room:
+    """Seat A (initiative 20) then B (10) in the room's order; return the room."""
+    room = await _load_room(session, room_id)
+    await set_initiative(
+        session,
+        room=room,
+        entries=[
+            InitiativeEntryInput(character_id=char_a, name="A", initiative=20),
+            InitiativeEntryInput(character_id=char_b, name="B", initiative=10),
+        ],
+    )
+    return room
+
+
+async def _set_order(
+    factory: async_sessionmaker[AsyncSession],
+    room_id: uuid.UUID,
+    entries: list[InitiativeEntryInput],
+) -> InitiativeState:
+    """Set the room's order in its own committed session; return the new state."""
+    async with factory() as session:
+        room = await _load_room(session, room_id)
+        state = await set_initiative(session, room=room, entries=entries)
+        await session.commit()
+    return state
+
+
+async def _advance_and_get_active(session: AsyncSession, room: Room) -> uuid.UUID | None:
+    await advance_turn(session, room=room)
+    return await active_character_id(session, room)
 
 
 async def test_set_initiative_sorts_desc_and_resets_active(
@@ -65,8 +96,8 @@ async def test_set_initiative_sorts_desc_and_resets_active(
         await session.commit()
 
     # Borin (18) sorts ahead of Aria (12); active turn resets to seat 0, round 1.
-    assert [e.name for e in state.entries] == ["Borin", "Aria"]
-    assert [e.order_index for e in state.entries] == [0, 1]
+    assert [entry.name for entry in state.entries] == ["Borin", "Aria"]
+    assert [entry.order_index for entry in state.entries] == [0, 1]
     assert state.active_index == 0
     assert state.round == 1
 
@@ -89,24 +120,16 @@ async def test_set_initiative_replaces_previous_order(
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
     room_id, char_a, char_b = await _make_room(factory)
-    async with factory() as session:
-        room = await session.get(Room, room_id)
-        assert room is not None
-        await set_initiative(
-            session,
-            room=room,
-            entries=[InitiativeEntryInput(character_id=char_a, name="Aria", initiative=10)],
-        )
-        await session.commit()
-    async with factory() as session:
-        room = await session.get(Room, room_id)
-        assert room is not None
-        state = await set_initiative(
-            session,
-            room=room,
-            entries=[InitiativeEntryInput(character_id=char_b, name="Borin", initiative=15)],
-        )
-        await session.commit()
+    await _set_order(
+        factory,
+        room_id,
+        [InitiativeEntryInput(character_id=char_a, name="Aria", initiative=10)],
+    )
+    state = await _set_order(
+        factory,
+        room_id,
+        [InitiativeEntryInput(character_id=char_b, name="Borin", initiative=15)],
+    )
     assert len(state.entries) == 1
     assert state.entries[0].name == "Borin"
 
@@ -116,16 +139,7 @@ async def test_advance_turn_moves_to_next_seat(
 ) -> None:
     room_id, char_a, char_b = await _make_room(factory)
     async with factory() as session:
-        room = await session.get(Room, room_id)
-        assert room is not None
-        await set_initiative(
-            session,
-            room=room,
-            entries=[
-                InitiativeEntryInput(character_id=char_a, name="A", initiative=20),
-                InitiativeEntryInput(character_id=char_b, name="B", initiative=10),
-            ],
-        )
+        room = await _seat_two(session, room_id, char_a, char_b)
         await advance_turn(session, room=room)
         await session.commit()
         assert room.initiative_active_index == 1
@@ -137,16 +151,7 @@ async def test_advance_turn_wraps_and_bumps_round(
 ) -> None:
     room_id, char_a, char_b = await _make_room(factory)
     async with factory() as session:
-        room = await session.get(Room, room_id)
-        assert room is not None
-        await set_initiative(
-            session,
-            room=room,
-            entries=[
-                InitiativeEntryInput(character_id=char_a, name="A", initiative=20),
-                InitiativeEntryInput(character_id=char_b, name="B", initiative=10),
-            ],
-        )
+        room = await _seat_two(session, room_id, char_a, char_b)
         await advance_turn(session, room=room)  # -> seat 1
         await advance_turn(session, room=room)  # wraps -> seat 0, round 2
         await session.commit()
@@ -172,20 +177,10 @@ async def test_active_character_id_tracks_pointer(
 ) -> None:
     room_id, char_a, char_b = await _make_room(factory)
     async with factory() as session:
-        room = await session.get(Room, room_id)
-        assert room is not None
-        await set_initiative(
-            session,
-            room=room,
-            entries=[
-                InitiativeEntryInput(character_id=char_a, name="A", initiative=20),
-                InitiativeEntryInput(character_id=char_b, name="B", initiative=10),
-            ],
-        )
+        room = await _seat_two(session, room_id, char_a, char_b)
         await session.commit()
         assert await active_character_id(session, room) == char_a
-        await advance_turn(session, room=room)
-        assert await active_character_id(session, room) == char_b
+        assert await _advance_and_get_active(session, room) == char_b
 
 
 async def test_build_initiative_state_empty_room(

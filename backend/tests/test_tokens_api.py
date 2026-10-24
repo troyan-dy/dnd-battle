@@ -7,38 +7,9 @@ Postgres is needed. Drives the real ASGI app via httpx.ASGITransport.
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator
 
 import httpx
 import pytest
-import pytest_asyncio
-from app.db.session import get_session
-from app.main import create_app
-from app.models import Base
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
-
-
-@pytest_asyncio.fixture
-async def client() -> AsyncIterator[httpx.AsyncClient]:
-    """Yield an ASGI client wired to a fresh in-memory DB."""
-    engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(bind=engine, expire_on_commit=False)
-
-    async def override_get_session() -> AsyncIterator[AsyncSession]:
-        async with factory() as session:
-            yield session
-
-    app = create_app()
-    app.dependency_overrides[get_session] = override_get_session
-
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
-
-    await engine.dispose()
 
 
 async def _make_room(client: httpx.AsyncClient) -> str:
@@ -71,7 +42,8 @@ async def test_place_token_bound_to_character(client: httpx.AsyncClient) -> None
     body = resp.json()
     assert body["room_id"] == room_id
     assert body["character_id"] == character_id
-    assert (body["x"], body["y"], body["size"]) == (3, 5, 2)
+    placement = (body["x"], body["y"], body["size"])
+    assert placement == (3, 5, 2)
     assert "id" in body
 
 
@@ -85,7 +57,8 @@ async def test_place_token_defaults(client: httpx.AsyncClient) -> None:
 
     assert resp.status_code == 201
     body = resp.json()
-    assert (body["x"], body["y"], body["size"]) == (0, 0, 1)
+    placement = (body["x"], body["y"], body["size"])
+    assert placement == (0, 0, 1)
 
 
 @pytest.mark.asyncio
@@ -157,21 +130,28 @@ async def test_place_token_out_of_bounds_422(client: httpx.AsyncClient) -> None:
     assert big.status_code == 422
 
 
+async def _add_placed_player(client: httpx.AsyncClient, room_id: str, *, cell: int) -> str:
+    """Add a player and place its token on the diagonal cell ``(cell, cell)``."""
+    character_id = await _add_player(client, room_id)
+    await client.post(
+        f"/rooms/{room_id}/tokens",
+        json={"character_id": character_id, "x": cell, "y": cell},
+    )
+    return character_id
+
+
 @pytest.mark.asyncio
 async def test_list_tokens_reconnect_safe(client: httpx.AsyncClient) -> None:
     """GET /rooms/{id}/tokens returns every placed token (board hydrate on connect)."""
     room_id = await _make_room(client)
-    char1 = await _add_player(client, room_id)
-    char2 = await _add_player(client, room_id)
-
-    await client.post(f"/rooms/{room_id}/tokens", json={"character_id": char1, "x": 1, "y": 1})
-    await client.post(f"/rooms/{room_id}/tokens", json={"character_id": char2, "x": 2, "y": 2})
+    char1 = await _add_placed_player(client, room_id, cell=1)
+    char2 = await _add_placed_player(client, room_id, cell=2)
 
     resp = await client.get(f"/rooms/{room_id}/tokens")
     assert resp.status_code == 200
     tokens = resp.json()
     assert len(tokens) == 2
-    assert {t["character_id"] for t in tokens} == {char1, char2}
+    assert {token["character_id"] for token in tokens} == {char1, char2}
 
 
 @pytest.mark.asyncio
@@ -198,7 +178,8 @@ async def test_update_token_moves_and_resizes(client: httpx.AsyncClient) -> None
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert (body["x"], body["y"], body["size"]) == (4, 1, 3)
+    placement = (body["x"], body["y"], body["size"])
+    assert placement == (4, 1, 3)
 
 
 @pytest.mark.asyncio

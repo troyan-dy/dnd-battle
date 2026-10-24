@@ -8,11 +8,8 @@ the transport.
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import AsyncIterator
 
-import pytest_asyncio
 from app.models import (
-    Base,
     Character,
     InviteLink,
     Participant,
@@ -23,18 +20,7 @@ from app.models import (
 from app.security.tokens import generate_token, hash_token
 from app.services.board import build_board_state
 from app.services.invites import is_invite_active, resolve_active_invite
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
-
-
-@pytest_asyncio.fixture
-async def factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield async_sessionmaker(bind=engine, expire_on_commit=False)
-    await engine.dispose()
-
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 # --- resolve_active_invite ------------------------------------------------------
 
@@ -154,7 +140,9 @@ async def test_build_board_state_includes_tokens_and_characters(
         character = Character(room_id=room.id, name="Aria", max_hp=24, current_hp=18)
         session.add(character)
         await session.flush()
-        session.add(Token(room_id=room.id, character_id=character.id, x=2, y=5, size=2))
+        session.add(
+            Token(room_id=room.id, character_id=character.id, x=2, y=5, size=2),
+        )
         await session.commit()
         room_id, character_id = room.id, character.id
 
@@ -183,7 +171,9 @@ async def test_build_board_state_isolates_other_rooms(
         char_b = Character(room_id=room_b.id, name="Other", max_hp=5, current_hp=5)
         session.add(char_b)
         await session.flush()
-        session.add(Token(room_id=room_b.id, character_id=char_b.id, x=0, y=0, size=1))
+        session.add(
+            Token(room_id=room_b.id, character_id=char_b.id, x=0, y=0, size=1),
+        )
         await session.commit()
         room_a_id = room_a.id
 

@@ -22,6 +22,7 @@ from sqlalchemy import ForeignKey, Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
+from app.limits import NAME_MAX_LENGTH
 
 if TYPE_CHECKING:
     from app.models.character import Character
@@ -46,7 +47,7 @@ class InitiativeEntry(Base, TimestampMixin):
         nullable=True,
     )
     # Display label shown in the tracker (the character or monster name).
-    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    name: Mapped[str] = mapped_column(String(NAME_MAX_LENGTH), nullable=False)
     # The rolled initiative value (higher acts first); ties resolved by order_index.
     initiative: Mapped[int] = mapped_column(Integer, nullable=False)
     # Resolved 0-based seat in the turn order (sorted by initiative desc on set).

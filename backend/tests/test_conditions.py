@@ -22,7 +22,7 @@ from app.rules import (
 
 
 def test_condition_list_is_the_fifteen_2024_conditions() -> None:
-    assert {c.value for c in Condition} == {
+    assert {condition.value for condition in Condition} == {
         "blinded",
         "charmed",
         "deafened",

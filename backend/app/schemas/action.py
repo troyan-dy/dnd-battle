@@ -22,207 +22,32 @@ incompatible change ships.
 
 Per-action payloads form a **discriminated union** on their ``type`` field
 (Pydantic ``Field(discriminator="type")``), so new action types are additive and
-parse-time safe. This module is pure schema: it holds no live BoardState and does
-no validation-against-state or broadcasting — those are separate Phase 4 tasks.
+parse-time safe. The payloads themselves live in :mod:`app.schemas.payloads` and
+:mod:`app.schemas.attack`. This module is pure schema: it holds no live BoardState
+and does no validation-against-state or broadcasting — those are separate Phase 4
+tasks.
 """
 
 from __future__ import annotations
 
-import enum
 import uuid
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.rules.attack import Advantage
-from app.rules.damage import DamageType, Defense
-from app.rules.dice import D20_SIDES, DiceExpressionError, parse_dice
-from app.schemas.room import GRID_COORD_MAX, GRID_COORD_MIN
+from app.schemas.attack import AttackIntentPayload, AttackResultPayload
+from app.schemas.payloads import (
+    DamagePayload,
+    EndTurnPayload,
+    HealPayload,
+    MarkPayload,
+    MovePayload,
+    SetVisibilityPayload,
+)
 
 # Current Action-protocol version. Clients stamp this on every intent; the server
 # rejects anything it does not support. Bump on an incompatible change.
 ACTION_PROTOCOL_VERSION = 1
-
-# Damage / healing magnitudes. Capped at the max-HP ceiling (room.AddPlayerRequest
-# limits max_hp to 1000) so a single action can never apply an absurd amount.
-DAMAGE_AMOUNT_MIN = 1
-DAMAGE_AMOUNT_MAX = 1000
-HEAL_AMOUNT_MIN = 1
-HEAL_AMOUNT_MAX = 1000
-
-# Cosmetic bounds for a board mark/ping.
-MARK_LABEL_MAX_LENGTH = 60
-MARK_COLOR_MAX_LENGTH = 32
-
-# Attack bounds: a flat to-hit bonus and the max length of a damage dice expression.
-ATTACK_BONUS_MIN = -20
-ATTACK_BONUS_MAX = 20
-DAMAGE_EXPR_MAX_LENGTH = 32
-DEFAULT_ATTACK_DAMAGE = "1d6"
-# The damage type an attack deals if the client omits one (the generic weapon hit).
-DEFAULT_ATTACK_DAMAGE_TYPE = DamageType.SLASHING
-
-
-class ActionType(enum.StrEnum):
-    """Discriminator values for the per-action payloads."""
-
-    MOVE = "move"
-    MARK = "mark"
-    DAMAGE = "damage"
-    HEAL = "heal"
-    ATTACK = "attack"
-    END_TURN = "endTurn"
-    SET_VISIBILITY = "setVisibility"
-
-
-class MovePayload(BaseModel):
-    """Move a token to a grid cell. Bounds mirror the placement contract."""
-
-    type: Literal[ActionType.MOVE] = ActionType.MOVE
-    token_id: uuid.UUID = Field(description="Token being moved.")
-    x: int = Field(ge=GRID_COORD_MIN, le=GRID_COORD_MAX, description="Target grid column.")
-    y: int = Field(ge=GRID_COORD_MIN, le=GRID_COORD_MAX, description="Target grid row.")
-
-
-class MarkPayload(BaseModel):
-    """A transient mark / ping placed on the board for everyone to see."""
-
-    type: Literal[ActionType.MARK] = ActionType.MARK
-    x: int = Field(ge=GRID_COORD_MIN, le=GRID_COORD_MAX, description="Mark grid column.")
-    y: int = Field(ge=GRID_COORD_MIN, le=GRID_COORD_MAX, description="Mark grid row.")
-    color: str | None = Field(
-        default=None, max_length=MARK_COLOR_MAX_LENGTH, description="Optional display color."
-    )
-    label: str | None = Field(
-        default=None, max_length=MARK_LABEL_MAX_LENGTH, description="Optional short label."
-    )
-
-
-class DamagePayload(BaseModel):
-    """Apply damage to a token, reducing its character's HP (clamped at 0).
-
-    Damage and healing are deliberately SEPARATE action types (not one signed
-    amount): the discriminated union is additive, so they parse independently and
-    stay semantically distinct for the upcoming combat log.
-    """
-
-    type: Literal[ActionType.DAMAGE] = ActionType.DAMAGE
-    token_id: uuid.UUID = Field(description="Token taking damage.")
-    amount: int = Field(
-        ge=DAMAGE_AMOUNT_MIN, le=DAMAGE_AMOUNT_MAX, description="Hit points of damage to apply."
-    )
-
-
-class HealPayload(BaseModel):
-    """Heal a token, restoring its character's HP (clamped at its max HP).
-
-    The mirror of :class:`DamagePayload`: a positive ``amount`` of hit points
-    added back, never exceeding the character's maximum.
-    """
-
-    type: Literal[ActionType.HEAL] = ActionType.HEAL
-    token_id: uuid.UUID = Field(description="Token being healed.")
-    amount: int = Field(
-        ge=HEAL_AMOUNT_MIN, le=HEAL_AMOUNT_MAX, description="Hit points of healing to apply."
-    )
-
-
-class AttackIntentPayload(BaseModel):
-    """Client → server: an attack from one token against another (Phase 5).
-
-    Carries only the participants and the attacker's offence: a flat to-hit
-    ``attack_bonus`` and a ``damage`` dice expression (e.g. ``"1d8+3"``). The d20
-    attack roll and the damage roll are made by the SERVER (CLAUDE.md rule 1) and
-    returned in :class:`AttackResultPayload`; the client never supplies a result,
-    so this is an INTENT-only payload (it appears in the intent union, not the
-    broadcast union).
-    """
-
-    type: Literal[ActionType.ATTACK] = ActionType.ATTACK
-    attacker_token_id: uuid.UUID = Field(description="Token making the attack.")
-    target_token_id: uuid.UUID = Field(description="Token being attacked.")
-    attack_bonus: int = Field(
-        default=0,
-        ge=ATTACK_BONUS_MIN,
-        le=ATTACK_BONUS_MAX,
-        description="Flat bonus added to the d20 attack roll.",
-    )
-    damage: str = Field(
-        default=DEFAULT_ATTACK_DAMAGE,
-        max_length=DAMAGE_EXPR_MAX_LENGTH,
-        description="Damage dice expression, e.g. '1d8+3'.",
-    )
-    damage_type: DamageType = Field(
-        default=DEFAULT_ATTACK_DAMAGE_TYPE,
-        description="The damage type dealt on a hit (used for the target's resistances).",
-    )
-
-    @field_validator("damage")
-    @classmethod
-    def _check_damage(cls, value: str) -> str:
-        """Reject a malformed / out-of-bounds dice expression at parse time."""
-        try:
-            parse_dice(value)
-        except DiceExpressionError as exc:
-            raise ValueError(str(exc)) from exc
-        return value
-
-
-class AttackResultPayload(BaseModel):
-    """Server → all clients: the resolved outcome of an attack — the log line.
-
-    Built by the server after rolling: the raw d20, the bonus + total, whether it
-    hit the target's Armor Class, and (on a hit) the rolled damage breakdown after
-    the target's resistance/vulnerability/immunity is applied. This is what everyone
-    sees in the shared combat log. It is BROADCAST-only (it never arrives as a client
-    intent), so it appears in the broadcast union, not the intent union.
-
-    Rules wiring (Phase 6): the d20 total is compared against the target's AC via
-    :func:`app.rules.attack.resolve_attack` (a natural 20 always hits, a natural 1
-    always misses); ``advantage`` is derived from the combatants' conditions. Damage
-    is rolled and applied ONLY on a hit, and is reduced by the target's ``defense``
-    for ``damage_type`` via :func:`app.rules.damage.resolve_damage`. On a miss the
-    ``damage_rolls`` are empty and ``damage_total`` is 0.
-    """
-
-    type: Literal[ActionType.ATTACK] = ActionType.ATTACK
-    attacker_token_id: uuid.UUID = Field(description="Token that made the attack.")
-    target_token_id: uuid.UUID = Field(description="Token that was attacked.")
-    attack_roll: int = Field(ge=1, le=D20_SIDES, description="The selected d20 result (1..20).")
-    attack_bonus: int = Field(description="Flat bonus added to the d20 roll.")
-    attack_total: int = Field(description="attack_roll + attack_bonus.")
-    advantage: Advantage = Field(description="Whether the roll had advantage/disadvantage.")
-    armor_class: int = Field(description="The target's Armor Class the roll was compared against.")
-    is_hit: bool = Field(description="Whether the attack hit (total >= AC, or a natural 20).")
-    is_critical_hit: bool = Field(description="Whether the d20 was a natural 20.")
-    is_critical_miss: bool = Field(description="Whether the d20 was a natural 1.")
-    damage: str = Field(description="The damage dice expression that was rolled.")
-    damage_type: DamageType = Field(description="The damage type dealt.")
-    defense: Defense = Field(description="The target's defense applied to the damage.")
-    damage_rolls: list[int] = Field(description="Each damage die result (empty on miss).")
-    damage_total: int = Field(ge=0, description="Total damage applied to the target (0 on miss).")
-
-
-class SetVisibilityPayload(BaseModel):
-    """Host → server: hide or reveal a token on the board (fog of war).
-
-    HOST-ONLY (enforced in :func:`app.services.actions.validate_intent`). This is
-    an INTENT-only payload: the server does not rebroadcast it as an Action — a
-    visibility change leaks board info, so instead the server applies the durable
-    ``Token.hidden`` flip and pushes a fresh, role-FILTERED :class:`BoardState` to
-    each side (players never receive a hidden token). It therefore appears in the
-    intent union only, not the broadcast union (mirrors the attack-intent split).
-    """
-
-    type: Literal[ActionType.SET_VISIBILITY] = ActionType.SET_VISIBILITY
-    token_id: uuid.UUID = Field(description="Token to hide or reveal.")
-    hidden: bool = Field(description="True hides the token from players; False reveals it.")
-
-
-class EndTurnPayload(BaseModel):
-    """Advance the initiative order to the next combatant. Carries no data."""
-
-    type: Literal[ActionType.END_TURN] = ActionType.END_TURN
 
 
 # Discriminated unions of the concrete action payloads. Pydantic selects the member
@@ -249,14 +74,14 @@ BroadcastActionPayload = Annotated[
 ActionPayload = IntentActionPayload
 
 
-def _validate_protocol_version(value: int) -> int:
+def _validate_protocol_version(version: int) -> int:
     """Reject any envelope whose protocol version the server does not support."""
-    if value != ACTION_PROTOCOL_VERSION:
+    if version != ACTION_PROTOCOL_VERSION:
         raise ValueError(
-            f"Unsupported action protocol version {value!r}; "
+            f"Unsupported action protocol version {version!r}; "
             f"server supports {ACTION_PROTOCOL_VERSION}."
         )
-    return value
+    return version
 
 
 class ActionIntent(BaseModel):
@@ -273,8 +98,8 @@ class ActionIntent(BaseModel):
 
     @field_validator("version")
     @classmethod
-    def _check_version(cls, value: int) -> int:
-        return _validate_protocol_version(value)
+    def _check_version(cls, version: int) -> int:
+        return _validate_protocol_version(version)
 
 
 class Action(BaseModel):
@@ -297,5 +122,5 @@ class Action(BaseModel):
 
     @field_validator("version")
     @classmethod
-    def _check_version(cls, value: int) -> int:
-        return _validate_protocol_version(value)
+    def _check_version(cls, version: int) -> int:
+        return _validate_protocol_version(version)

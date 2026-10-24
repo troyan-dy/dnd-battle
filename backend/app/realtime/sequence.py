@@ -6,7 +6,7 @@ increasing counter per room, starting at 0.
 
 The in-memory counter is a fast cache, not the source of truth: the high-water mark
 is persisted on ``Room.last_action_seq`` (see
-:func:`app.services.actions.reserve_action_seq`). A freshly started process seeds the
+:func:`app.services.sequence.reserve_action_seq`). A freshly started process seeds the
 counter from that durable value via :meth:`RoomSequencer.seed` before vending, so the
 action sequence survives a server restart rather than colliding from 0 (CLAUDE.md
 rule 2). The durable :class:`~app.models.token.Token` /

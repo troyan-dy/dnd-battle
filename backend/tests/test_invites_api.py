@@ -7,47 +7,19 @@ Postgres is needed. Drives the real ASGI app via httpx.ASGITransport.
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 import pytest
-import pytest_asyncio
-from app.db.session import get_session
-from app.main import create_app
 from app.models import (
-    Base,
     InviteLink,
     ParticipantRole,
 )
 from app.security.tokens import hash_token
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-ClientFactory = tuple[httpx.AsyncClient, async_sessionmaker[AsyncSession]]
-
-
-@pytest_asyncio.fixture
-async def client_and_factory() -> AsyncIterator[ClientFactory]:
-    """Yield an ASGI client wired to a fresh in-memory DB plus its session factory."""
-    engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(bind=engine, expire_on_commit=False)
-
-    async def override_get_session() -> AsyncIterator[AsyncSession]:
-        async with factory() as session:
-            yield session
-
-    app = create_app()
-    app.dependency_overrides[get_session] = override_get_session
-
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client, factory
-
-    await engine.dispose()
+from tests.support import ClientFactory
 
 
 async def _create_room(client: httpx.AsyncClient, name: str = "Room") -> dict[str, Any]:
@@ -183,7 +155,8 @@ async def test_resolve_expired_token_returns_404(
                 select(InviteLink).where(InviteLink.token_hash == hash_token(token))
             )
         ).scalar_one()
-        link.expires_at = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=1)
+        now = dt.datetime.now(dt.UTC)
+        link.expires_at = now - dt.timedelta(seconds=1)
         await session.commit()
 
     resp = await client.get(f"/invites/{token}")
@@ -205,7 +178,8 @@ async def test_resolve_future_expiry_still_active(
                 select(InviteLink).where(InviteLink.token_hash == hash_token(token))
             )
         ).scalar_one()
-        link.expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+        now = dt.datetime.now(dt.UTC)
+        link.expires_at = now + dt.timedelta(hours=1)
         await session.commit()
 
     resp = await client.get(f"/invites/{token}")

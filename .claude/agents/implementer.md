@@ -23,6 +23,7 @@ Workflow:
 5. Commit one logical change with a clear message.
 6. Update STATE.md LOG with one line: what changed + what's next.
 
-Definition of Done: compiles, ruff/mypy + eslint clean, new tests green, commit made.
+Definition of Done: compiles, ruff/mypy/WPS (`backend/scripts/lint.sh`) + eslint clean,
+new tests green, commit made.
 If you hit an architectural fork not covered by the ADR, stop and ask the
 orchestrator to route to the architect — do not invent a contract.

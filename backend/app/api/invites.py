@@ -20,13 +20,10 @@ that reloads its link can always re-resolve and resync.
 
 from __future__ import annotations
 
-from typing import Annotated
+from fastapi import APIRouter, HTTPException, status
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.db.session import get_session
-from app.schemas.room import ResolveInviteResponse
+from app.api.dependencies import SessionDep
+from app.schemas.invite import ResolveInviteResponse
 from app.services.invites import resolve_active_invite
 
 router = APIRouter(prefix="/invites", tags=["invites"])
@@ -39,7 +36,7 @@ _INVALID_LINK_DETAIL = "Invalid or expired invite link."
 @router.get("/{token}", response_model=ResolveInviteResponse)
 async def resolve_invite(
     token: str,
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: SessionDep,
 ) -> ResolveInviteResponse:
     """Resolve an invite token to its (room, participant, role, character) binding."""
     resolved = await resolve_active_invite(session, token)

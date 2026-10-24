@@ -15,7 +15,6 @@ from collections.abc import AsyncIterator
 import pytest
 import pytest_asyncio
 from app.models import (
-    Base,
     Character,
     InviteLink,
     Participant,
@@ -24,20 +23,16 @@ from app.models import (
     RoomStatus,
 )
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from tests.support import SessionMaker
 
 
 @pytest_asyncio.fixture
-async def session() -> AsyncIterator[AsyncSession]:
+async def session(factory: SessionMaker) -> AsyncIterator[AsyncSession]:
     """Yield a session bound to a fresh in-memory schema."""
-    engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with factory() as sess:
         yield sess
-    await engine.dispose()
 
 
 def _hash(token: str) -> str:

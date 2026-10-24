@@ -44,8 +44,10 @@ class Token(Base, TimestampMixin):
         nullable=False,
     )
     # Grid coordinates (column, row), 0-based; non-negative (validated in the API).
-    x: Mapped[int] = mapped_column(Integer, nullable=False)
-    y: Mapped[int] = mapped_column(Integer, nullable=False)
+    # `x` / `y` are the persisted column names AND the public Token contract
+    # (CLAUDE.md: ``{ x, y }`` grid coords), so they keep their short names.
+    x: Mapped[int] = mapped_column(Integer, nullable=False)  # noqa: WPS111
+    y: Mapped[int] = mapped_column(Integer, nullable=False)  # noqa: WPS111
     # Footprint in grid cells (1 = Tiny/Small/Medium, 2 = Large, 3 = Huge, ...).
     size: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     # Fog of war: when True the host has HIDDEN this token. The server filters

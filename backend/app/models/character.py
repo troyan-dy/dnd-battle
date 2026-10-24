@@ -10,6 +10,7 @@ from sqlalchemy import ForeignKey, Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
+from app.limits import NAME_MAX_LENGTH, URL_MAX_LENGTH
 
 if TYPE_CHECKING:
     from app.models.participant import Participant
@@ -28,7 +29,7 @@ class Character(Base, TimestampMixin):
         index=True,
         nullable=False,
     )
-    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    name: Mapped[str] = mapped_column(String(NAME_MAX_LENGTH), nullable=False)
     max_hp: Mapped[int] = mapped_column(Integer, nullable=False)
     current_hp: Mapped[int] = mapped_column(Integer, nullable=False)
     # Armor Class — the target number an attack roll must meet to hit (2024 PHB).
@@ -41,7 +42,7 @@ class Character(Base, TimestampMixin):
     resistances: Mapped[dict[str, Any]] = mapped_column(SAJSON, default=dict, nullable=False)
     # Optional portrait image URL (DM-provided). A full upload pipeline can replace
     # this later; a plain URL keeps the value reconnect-safe and storage-free.
-    portrait_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    portrait_url: Mapped[str | None] = mapped_column(String(URL_MAX_LENGTH), nullable=True)
     # Ability scores keyed by short name (str/dex/...); defaulted by rules layer.
     ability_scores: Mapped[dict[str, Any]] = mapped_column(SAJSON, default=dict, nullable=False)
     # Active condition names (2024 list); effects live in the rules engine.

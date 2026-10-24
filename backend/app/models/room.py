@@ -5,19 +5,22 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum as SAEnum
-from sqlalchemy import Integer, String, Uuid
+from sqlalchemy import Enum, Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
+from app.limits import CONTENT_TYPE_MAX_LENGTH, MAP_PATH_MAX_LENGTH, NAME_MAX_LENGTH
 from app.models.enums import RoomStatus
 
 if TYPE_CHECKING:
-    from app.models.character import Character
-    from app.models.initiative import InitiativeEntry
-    from app.models.invite_link import InviteLink
-    from app.models.participant import Participant
-    from app.models.token import Token
+    # Type-only: the room owns every other model, so import them via the package.
+    from app.models import Character, InitiativeEntry, InviteLink, Participant, Token
+
+
+# Every child collection is owned by the room: removing it from the room (or deleting
+# the room) deletes the child rows too.
+_OWNED_BY_ROOM = "all, delete-orphan"
+_ROOM_BACKREF = "room"
 
 
 class Room(Base, TimestampMixin):
@@ -26,9 +29,9 @@ class Room(Base, TimestampMixin):
     __tablename__ = "rooms"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    name: Mapped[str] = mapped_column(String(NAME_MAX_LENGTH), nullable=False)
     status: Mapped[RoomStatus] = mapped_column(
-        SAEnum(RoomStatus, name="room_status"),
+        Enum(RoomStatus, name="room_status"),
         default=RoomStatus.lobby,
         nullable=False,
     )
@@ -36,8 +39,10 @@ class Room(Base, TimestampMixin):
     # filename within ``MAP_STORAGE_DIR`` (never a client-supplied path);
     # ``map_content_type`` is the validated, allowlisted image MIME type. Both
     # are NULL until the host uploads a map; a re-upload overwrites them.
-    map_image_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    map_content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    map_image_path: Mapped[str | None] = mapped_column(String(MAP_PATH_MAX_LENGTH), nullable=True)
+    map_content_type: Mapped[str | None] = mapped_column(
+        String(CONTENT_TYPE_MAX_LENGTH), nullable=True
+    )
 
     # Initiative / turn-order pointer (CLAUDE.md BoardState). The ordered combatant
     # rows live in ``initiative_entries``; these two columns track WHOSE turn it is.
@@ -55,22 +60,22 @@ class Room(Base, TimestampMixin):
     last_action_seq: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     participants: Mapped[list[Participant]] = relationship(
-        back_populates="room",
-        cascade="all, delete-orphan",
+        back_populates=_ROOM_BACKREF,
+        cascade=_OWNED_BY_ROOM,
     )
     characters: Mapped[list[Character]] = relationship(
-        back_populates="room",
-        cascade="all, delete-orphan",
+        back_populates=_ROOM_BACKREF,
+        cascade=_OWNED_BY_ROOM,
     )
     invite_links: Mapped[list[InviteLink]] = relationship(
-        back_populates="room",
-        cascade="all, delete-orphan",
+        back_populates=_ROOM_BACKREF,
+        cascade=_OWNED_BY_ROOM,
     )
     tokens: Mapped[list[Token]] = relationship(
-        back_populates="room",
-        cascade="all, delete-orphan",
+        back_populates=_ROOM_BACKREF,
+        cascade=_OWNED_BY_ROOM,
     )
     initiative_entries: Mapped[list[InitiativeEntry]] = relationship(
-        back_populates="room",
-        cascade="all, delete-orphan",
+        back_populates=_ROOM_BACKREF,
+        cascade=_OWNED_BY_ROOM,
     )

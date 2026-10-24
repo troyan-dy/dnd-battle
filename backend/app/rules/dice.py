@@ -54,6 +54,27 @@ class ParsedDice:
     sides: int
     modifier: int
 
+    @classmethod
+    def from_flat_amount(cls, amount: int) -> ParsedDice:
+        """Bounds-check a flat amount (no dice) and wrap it as ``count=0, sides=0``."""
+        if abs(amount) > MAX_FLAT_AMOUNT:
+            raise DiceExpressionError("Flat amount out of range.")
+        return cls(count=0, sides=0, modifier=amount)
+
+    @classmethod
+    def from_dice_match(cls, match: re.Match[str]) -> ParsedDice:
+        """Bounds-check an ``NdS(+/-M)`` match; the count defaults to 1, the modifier to 0."""
+        count = int(match.group(1) or 1)
+        sides = int(match.group(2))
+        modifier = int(match.group(3) or 0)
+        if not 1 <= count <= MAX_DICE_COUNT:
+            raise DiceExpressionError("Dice count out of range.")
+        if not 1 <= sides <= MAX_DICE_SIDES:
+            raise DiceExpressionError("Dice sides out of range.")
+        if abs(modifier) > MAX_MODIFIER:
+            raise DiceExpressionError("Modifier out of range.")
+        return cls(count=count, sides=sides, modifier=modifier)
+
 
 @dataclass(frozen=True)
 class DiceRoll:
@@ -72,26 +93,12 @@ def parse_dice(expression: str) -> ParsedDice:
 
     flat = _FLAT_RE.match(text)
     if flat is not None:
-        value = int(flat.group(1))
-        if abs(value) > MAX_FLAT_AMOUNT:
-            raise DiceExpressionError("Flat amount out of range.")
-        return ParsedDice(count=0, sides=0, modifier=value)
+        return ParsedDice.from_flat_amount(int(flat.group(1)))
 
     match = _DICE_RE.match(text)
     if match is None:
         raise DiceExpressionError(f"Invalid dice expression: {expression!r}.")
-
-    count = int(match.group(1)) if match.group(1) else 1
-    sides = int(match.group(2))
-    modifier = int(match.group(3)) if match.group(3) else 0
-
-    if not 1 <= count <= MAX_DICE_COUNT:
-        raise DiceExpressionError("Dice count out of range.")
-    if not 1 <= sides <= MAX_DICE_SIDES:
-        raise DiceExpressionError("Dice sides out of range.")
-    if abs(modifier) > MAX_MODIFIER:
-        raise DiceExpressionError("Modifier out of range.")
-    return ParsedDice(count=count, sides=sides, modifier=modifier)
+    return ParsedDice.from_dice_match(match)
 
 
 def roll_die(sides: int, *, rng: random.Random) -> int:
@@ -109,8 +116,9 @@ def roll_d20(*, rng: random.Random) -> int:
 def roll_dice(expression: str, *, rng: random.Random) -> DiceRoll:
     """Parse + roll a dice expression, returning each die result and the total."""
     parsed = parse_dice(expression)
-    rolls = (
-        tuple(roll_die(parsed.sides, rng=rng) for _ in range(parsed.count)) if parsed.sides else ()
-    )
+    rolls: tuple[int, ...] = ()
+    if parsed.sides:
+        each_die = (roll_die(parsed.sides, rng=rng) for _ in range(parsed.count))
+        rolls = tuple(each_die)
     total = sum(rolls) + parsed.modifier
     return DiceRoll(rolls=rolls, modifier=parsed.modifier, total=total)

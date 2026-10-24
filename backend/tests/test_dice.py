@@ -20,6 +20,10 @@ from app.rules.dice import (
     roll_die,
 )
 
+# One past the allowed bounds (for out-of-range expressions).
+_TOO_MANY_DICE = MAX_DICE_COUNT + 1
+_TOO_MANY_SIDES = MAX_DICE_SIDES + 1
+
 
 def test_parse_simple_dice() -> None:
     parsed = parse_dice("2d6+3")
@@ -43,7 +47,7 @@ def test_parse_flat_amount() -> None:
 
 @pytest.mark.parametrize(
     "expr",
-    ["", "abc", "d", "2x6", "0d6", f"{MAX_DICE_COUNT + 1}d6", f"1d{MAX_DICE_SIDES + 1}"],
+    ["", "abc", "d", "2x6", "0d6", f"{_TOO_MANY_DICE}d6", f"1d{_TOO_MANY_SIDES}"],
 )
 def test_parse_rejects_bad_expressions(expr: str) -> None:
     with pytest.raises(DiceExpressionError):
@@ -68,15 +72,15 @@ def test_roll_d20_uses_twenty_sides() -> None:
 
 
 def test_roll_dice_is_deterministic_for_a_seed() -> None:
-    a = roll_dice("3d6+1", rng=random.Random(42))
-    b = roll_dice("3d6+1", rng=random.Random(42))
-    assert a == b
-    assert len(a.rolls) == 3
-    assert a.total == sum(a.rolls) + 1
-    assert all(1 <= r <= 6 for r in a.rolls)
+    first = roll_dice("3d6+1", rng=random.Random(42))
+    second = roll_dice("3d6+1", rng=random.Random(42))
+    assert first == second
+    assert len(first.rolls) == 3
+    assert first.total == sum(first.rolls) + 1
+    assert all(1 <= die <= 6 for die in first.rolls)
 
 
 def test_roll_dice_flat_amount_has_no_rolls() -> None:
-    result = roll_dice("4", rng=random.Random(0))
-    assert result.rolls == ()
-    assert result.total == 4
+    outcome = roll_dice("4", rng=random.Random(0))
+    assert outcome.rolls == ()
+    assert outcome.total == 4

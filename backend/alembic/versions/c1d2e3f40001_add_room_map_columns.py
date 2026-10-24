@@ -20,8 +20,20 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     with op.batch_alter_table("rooms", schema=None) as batch_op:
-        batch_op.add_column(sa.Column("map_image_path", sa.String(length=255), nullable=True))
-        batch_op.add_column(sa.Column("map_content_type", sa.String(length=100), nullable=True))
+        batch_op.add_column(
+            sa.Column(
+                "map_image_path",
+                sa.String(length=255),
+                nullable=True,
+            ),
+        )
+        batch_op.add_column(
+            sa.Column(
+                "map_content_type",
+                sa.String(length=100),
+                nullable=True,
+            ),
+        )
 
 
 def downgrade() -> None:

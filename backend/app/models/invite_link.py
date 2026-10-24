@@ -23,6 +23,7 @@ from sqlalchemy import DateTime, ForeignKey, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
+from app.limits import TOKEN_HASH_LENGTH
 
 if TYPE_CHECKING:
     from app.models.participant import Participant
@@ -47,7 +48,9 @@ class InviteLink(Base, TimestampMixin):
     )
     # SHA-256 hex digest of the plaintext token. Unique so lookups are exact and
     # so the same token can never be registered twice.
-    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    token_hash: Mapped[str] = mapped_column(
+        String(TOKEN_HASH_LENGTH), unique=True, index=True, nullable=False
+    )
     expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     used_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

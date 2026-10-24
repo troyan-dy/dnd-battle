@@ -6,6 +6,6 @@ room model; the authoritative BoardState, versioned Action protocol, server-side
 intent validation and broadcasting arrive in later Phase 4 tasks.
 """
 
-from app.realtime.server import create_asgi_app, create_sio_server
-
-__all__ = ["create_asgi_app", "create_sio_server"]
+# Redundant ``as`` aliases mark these names as explicit re-exports (PEP 484).
+from app.realtime.server import create_asgi_app as create_asgi_app
+from app.realtime.server import create_sio_server as create_sio_server

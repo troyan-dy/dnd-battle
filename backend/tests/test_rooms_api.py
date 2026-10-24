@@ -8,15 +8,11 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 import pytest
-import pytest_asyncio
-from app.db.session import get_session
-from app.main import create_app
 from app.models import (
-    Base,
     Character,
     InviteLink,
     Participant,
@@ -25,32 +21,8 @@ from app.models import (
     RoomStatus,
 )
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
 
-ClientFactory = tuple[httpx.AsyncClient, async_sessionmaker[AsyncSession]]
-
-
-@pytest_asyncio.fixture
-async def client_and_factory() -> AsyncIterator[ClientFactory]:
-    """Yield an ASGI client wired to a fresh in-memory DB plus its session factory."""
-    engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(bind=engine, expire_on_commit=False)
-
-    async def override_get_session() -> AsyncIterator[AsyncSession]:
-        async with factory() as session:
-            yield session
-
-    app = create_app()
-    app.dependency_overrides[get_session] = override_get_session
-
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client, factory
-
-    await engine.dispose()
+from tests.support import ClientFactory
 
 
 @pytest.mark.asyncio
@@ -80,7 +52,7 @@ async def test_create_room_returns_id_and_host_link(
     # Host link: plaintext token + shareable url
     token = body["host_link"]["token"]
     assert token
-    assert body["host_link"]["url"].endswith("/join/" + token)
+    assert body["host_link"]["url"].endswith(f"/join/{token}")
 
     # Persistence: exactly one room, one host participant, one invite link.
     async with factory() as session:
@@ -133,6 +105,24 @@ async def _create_room(client: httpx.AsyncClient, name: str = "Room") -> str:
     return room_id
 
 
+async def _room_with_player(
+    client: httpx.AsyncClient,
+    *,
+    room_name: str = "Room",
+    character_name: str = "Aria",
+    max_hp: int = 10,
+) -> tuple[str, dict[str, Any]]:
+    """Create a room and add one player to it; return (room_id, add-player body)."""
+    room_id = await _create_room(client, room_name)
+    resp = await client.post(
+        f"/rooms/{room_id}/participants",
+        json={"character_name": character_name, "max_hp": max_hp},
+    )
+    assert resp.status_code == 201
+    player: dict[str, Any] = resp.json()
+    return room_id, player
+
+
 @pytest.mark.asyncio
 async def test_add_player_mints_link_bound_to_character(
     client_and_factory: ClientFactory,
@@ -154,7 +144,7 @@ async def test_add_player_mints_link_bound_to_character(
 
     token = body["invite_link"]["token"]
     assert token
-    assert body["invite_link"]["url"].endswith("/join/" + token)
+    assert body["invite_link"]["url"].endswith(f"/join/{token}")
 
     async with factory() as session:
         # Character slot created with current_hp seeded from max_hp.
@@ -465,13 +455,7 @@ async def test_revoke_disables_link_and_breaks_resolve(
 ) -> None:
     """Revoking a participant's link sets revoked_at and makes resolve 404."""
     client, factory = client_and_factory
-    room_id = await _create_room(client)
-    player = (
-        await client.post(
-            f"/rooms/{room_id}/participants",
-            json={"character_name": "Aria", "max_hp": 10},
-        )
-    ).json()
+    room_id, player = await _room_with_player(client)
     participant_id = player["participant_id"]
     token = player["invite_link"]["token"]
 
@@ -671,7 +655,8 @@ async def test_list_characters_returns_only_this_rooms_characters(
     """GET /rooms/{id}/characters -> 200: all characters in the room (board hydrate)."""
     client, _ = client_and_factory
     room_a = await _create_room(client, "A")
-    room_b = await _create_room(client, "B")
+    # A character in another room must NOT leak into room A's list.
+    await _room_with_player(client, room_name="B", character_name="Other", max_hp=9)
     aria = (
         await client.post(
             f"/rooms/{room_a}/participants",
@@ -684,17 +669,12 @@ async def test_list_characters_returns_only_this_rooms_characters(
             json={"character_name": "Bram", "max_hp": 11},
         )
     ).json()
-    # A character in another room must NOT leak into room A's list.
-    await client.post(
-        f"/rooms/{room_b}/participants",
-        json={"character_name": "Other", "max_hp": 9},
-    )
 
     resp = await client.get(f"/rooms/{room_a}/characters")
 
     assert resp.status_code == 200
     body = resp.json()
-    by_id = {c["id"]: c for c in body}
+    by_id = {character["id"]: character for character in body}
     assert set(by_id) == {aria["character_id"], bram["character_id"]}
     assert by_id[aria["character_id"]]["name"] == "Aria"
     assert by_id[aria["character_id"]]["max_hp"] == 24
@@ -757,7 +737,7 @@ async def test_put_initiative_sorts_desc_and_sets_active(
 
     assert resp.status_code == 200
     body = resp.json()
-    assert [e["name"] for e in body["entries"]] == ["Goblin", "Aria"]
+    assert [entry["name"] for entry in body["entries"]] == ["Goblin", "Aria"]
     assert body["entries"][0]["character_id"] is None
     assert body["entries"][1]["character_id"] == aria
     assert body["active_index"] == 0
@@ -779,7 +759,7 @@ async def test_get_initiative_reads_back_order(
     resp = await client.get(f"/rooms/{room_id}/initiative")
     assert resp.status_code == 200
     body = resp.json()
-    assert [e["name"] for e in body["entries"]] == ["Goblin"]
+    assert [entry["name"] for entry in body["entries"]] == ["Goblin"]
     assert body["active_index"] == 0
 
 
