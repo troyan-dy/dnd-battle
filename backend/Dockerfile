@@ -5,7 +5,7 @@
 # configured DATABASE_URL, then serves the REST API and the realtime endpoint
 # from one process (see app/main.py).
 
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+FROM ghcr.io/astral-sh/uv:python3.14-trixie-slim
 
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \

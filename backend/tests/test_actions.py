@@ -9,6 +9,8 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from app.rules.attack import Advantage
+from app.rules.damage import DamageType, Defense
 from app.schemas.action import (
     ACTION_PROTOCOL_VERSION,
     Action,
@@ -142,14 +144,14 @@ def test_attack_result_broadcasts_with_roll_breakdown() -> None:
             attack_roll=14,
             attack_bonus=5,
             attack_total=19,
-            advantage="normal",
+            advantage=Advantage.NORMAL,
             armor_class=15,
             is_hit=True,
             is_critical_hit=False,
             is_critical_miss=False,
             damage="1d8+3",
-            damage_type="fire",
-            defense="resistance",
+            damage_type=DamageType.FIRE,
+            defense=Defense.RESISTANCE,
             damage_rolls=[6],
             damage_total=9,
         ),

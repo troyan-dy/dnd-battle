@@ -250,7 +250,7 @@ async def upload_map(
     data = await file.read(config.MAX_MAP_UPLOAD_BYTES + 1)
     if len(data) == 0:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Empty map image upload.",
         )
     if len(data) > config.MAX_MAP_UPLOAD_BYTES:
@@ -370,7 +370,7 @@ async def place_token(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found.")
     if character.room_id != room_id:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Character does not belong to this room.",
         )
 
@@ -430,7 +430,7 @@ async def update_token(
     fields = payload.model_dump(exclude_none=True)
     if not fields:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Provide at least one of x, y, size.",
         )
 
@@ -473,7 +473,7 @@ async def put_initiative(
         character = await session.get(Character, entry.character_id)
         if character is None or character.room_id != room_id:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Initiative entry references a character not in this room.",
             )
 

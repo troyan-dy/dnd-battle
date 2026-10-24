@@ -21,7 +21,7 @@ tabletop focused on encounters.
 
 Backend is fixed (Python + FastAPI). Frontend is an assumed default — change freely.
 
-- Backend language: **Python 3.12+**
+- Backend language: **Python 3.14+**
 - Backend framework: **FastAPI** (ASGI, served by **uvicorn**), authoritative server state
 - Realtime: **python-socketio** (ASGI) mounted on the FastAPI app — gives built-in
   rooms + reconnection; pairs with **socket.io-client** on the frontend.
