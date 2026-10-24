@@ -219,3 +219,6 @@ __marimo__/
 
 # Local docker compose data (Postgres + uploaded maps bind mounts).
 .docker-data/
+
+# Local log written by the Stop/SubagentStop hooks in .claude/settings.json.
+.loop/

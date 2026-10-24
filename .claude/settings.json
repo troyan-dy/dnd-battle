@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"[stop] cycle ended at $(date -u +%FT%TZ)\" >> .loop/loop.log"
+            "command": "mkdir -p .loop && echo \"[stop] cycle ended at $(date -u +%FT%TZ)\" >> .loop/loop.log"
           }
         ]
       }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"[subagent-stop] $(date -u +%FT%TZ)\" >> .loop/loop.log"
+            "command": "mkdir -p .loop && echo \"[subagent-stop] $(date -u +%FT%TZ)\" >> .loop/loop.log"
           }
         ]
       }
