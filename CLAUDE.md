@@ -31,6 +31,9 @@ Backend is fixed (Python + FastAPI). Frontend is an assumed default — change f
   (optionally backed by **Redis** when you scale past one server process).
 - Backend package manager: **uv** (pip/poetry also fine)
 - Backend tests: **pytest** + **pytest-asyncio**; **httpx** for API tests
+- Backend lint: **ruff** (lint + format), **mypy** (strict) and
+  **wemake-python-styleguide** (flake8, WPS rules; `backend/setup.cfg`) — all via
+  `backend/scripts/lint.sh`
 - Frontend: **React + Vite + TypeScript**, canvas via **Konva** (react-konva)
 - Frontend tests: **Vitest** (unit) + **Playwright** (e2e for multi-client sync)
 - Data contracts: **Pydantic** models on the server are the source of truth for

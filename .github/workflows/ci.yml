@@ -44,6 +44,10 @@ jobs:
       - name: Mypy (strict)
         run: uv run mypy
 
+      # wemake-python-styleguide via flake8 (WPS rules only; config in setup.cfg).
+      - name: WPS (wemake-python-styleguide)
+        run: uv run flake8 .
+
       - name: Pytest
         run: uv run pytest -q
 
